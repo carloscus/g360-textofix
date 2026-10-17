@@ -106,25 +106,16 @@ class ProveedorOllama:
         from .ai import PROMPT  # mismo prompt conservador
 
         inicio = time.monotonic()
+        endpoint, payload = self._endpoint_y_payload(PROMPT, texto, self.modelo)
         respuesta = httpx.post(
-            f"{self.url}/api/chat",
-            json={
-                "model": self.modelo,
-                "messages": [
-                    {"role": "system", "content": PROMPT},
-                    {"role": "user", "content": texto},
-                ],
-                "stream": False,
-                "options": {
-                    "temperature": 0.1,
-                    "top_p": 0.9,
-                },
-            },
-            timeout=self.timeout_s,
+            f"{self.url}{endpoint}", json=payload, timeout=self.timeout_s
         )
         respuesta.raise_for_status()
         cuerpo = respuesta.json()
-        mensaje = (cuerpo.get("message") or {}).get("content", "").strip() or None
+        if endpoint == "/api/chat":
+            mensaje = (cuerpo.get("message") or {}).get("content", "").strip() or None
+        else:
+            mensaje = cuerpo.get("response", "").strip() or None
 
         transcurrido = time.monotonic() - inicio
         log.info(
@@ -135,6 +126,61 @@ class ProveedorOllama:
             describe(mensaje),
         )
         return mensaje
+
+    # --- endpoint por version ------------------------------------------------
+    # Ollama tiene dos formatos de API segun la version instalada:
+    #   /api/generate (con "prompt")   - la mas vieja
+    #   /api/chat     (con "messages") - desde 0.40 en adelante
+    # No se asume ninguno: se lee la version y se usa el que corresponda.
+
+    @classmethod
+    def _endpoint_y_payload(cls, prompt: str, texto: str, modelo: str) -> tuple[str, dict]:
+        """El endpoint y el payload correctos para la version instalada."""
+        import httpx
+
+        opciones = {"temperature": 0.1, "top_p": 0.9}
+        try:
+            version = httpx.get(f"{OLLAMA_URL_POR_DEFECTO}/api/version", timeout=3.0).json().get(
+                "version", ""
+            )
+        except Exception:
+            version = ""
+
+        usa_chat = cls._usa_chat(version)
+        if usa_chat:
+            return (
+                "/api/chat",
+                {
+                    "model": modelo,
+                    "messages": [
+                        {"role": "system", "content": prompt},
+                        {"role": "user", "content": texto},
+                    ],
+                    "stream": False,
+                    "options": opciones,
+                },
+            )
+        return (
+            "/api/generate",
+            {
+                "model": modelo,
+                "prompt": prompt + texto,
+                "stream": False,
+                "options": opciones,
+            },
+        )
+
+    @staticmethod
+    def _usa_chat(version: str) -> bool:
+        """Verdadero si la version usa /api/chat (la moderna)."""
+        if not version:
+            return True
+        partes = version.split(".")
+        try:
+            menor = f"{partes[0]}.{partes[1]}"
+        except IndexError:
+            return True
+        return menor in ("0.40", "0.41") or int(partes[0]) >= 1
 
     def probar(self, texto: str) -> dict:
         """Corrige sin escribir nada. Sirve para medir la calidad del prompt."""
