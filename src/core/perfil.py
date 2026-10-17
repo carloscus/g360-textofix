@@ -160,6 +160,47 @@ def hay_clave_api() -> bool:
     return ARCHIVO_CLAVE.exists()
 
 
+# --- Clave de NVIDIA NIM ------------------------------------------------------
+# La clave de NVIDIA va en el mismo almacen DPAPI, en un archivo aparte
+# (`clave_nim.dat`): si el usuario usa ambos proveedores, cada uno tiene
+# su clave. DPAPI las ata a la cuenta de Windows, igual que la de Gemini.
+
+
+def _archivo_clave_nim() -> Path:
+    return DIR_PERFIL / "clave_nim.dat"
+
+
+def guardar_clave_nim(clave: str) -> None:
+    """Guarda la clave de NVIDIA cifrada. Una clave vacia la borra."""
+    DIR_PERFIL.mkdir(parents=True, exist_ok=True)
+    destino = _archivo_clave_nim()
+    if not clave.strip():
+        destino.unlink(missing_ok=True)
+        return
+    destino.write_bytes(_cifrar(clave.strip().encode("utf-8")))
+    log.info("clave de NVIDIA NIM guardada (cifrada con DPAPI)")
+
+
+def leer_clave_nim() -> str | None:
+    """Devuelve la clave de NVIDIA guardada, o None si no hay o no se abre."""
+    destino = _archivo_clave_nim()
+    if not destino.exists():
+        return None
+    try:
+        return _descifrar(destino.read_bytes()).decode("utf-8").strip()
+    except OSError as exc:
+        log.warning("hay una clave de NVIDIA pero no se puede descifrar: %s", exc)
+        return None
+
+
+def borrar_clave_nim() -> None:
+    _archivo_clave_nim().unlink(missing_ok=True)
+
+
+def hay_clave_nim() -> bool:
+    return _archivo_clave_nim().exists()
+
+
 # --- Configuracion (no secreta) ---------------------------------------------
 
 

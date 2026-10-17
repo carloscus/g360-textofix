@@ -121,14 +121,12 @@ def correct(text: str, mode: str, transform: str, modelo: str | None = None) -> 
             return prov.corregir(text)
         except Exception as exc:
             # La caida solo existe cuando el proovedor original es Ollama
-            # y reviento. Si el original era Gemini, reintentar Gemini no
-            # sirve: se propaga el fallo.
+            # y reviento. Si el original ya era nube, reintentar no sirve:
+            # se propaga el fallo.
             if not es_ollama(prov):
                 raise
-            from .ai import CorrectorIA
-
-            log.warning("Ollama fallo (%s): se cae a Gemini", exc)
-            return CorrectorIA(modelo=modelo).corregir(text)
+            log.warning("Ollama fallo (%s): se cae a la nube", exc)
+            return _nube(modelo).corregir(text)
 
     raise NotImplementedError(f"modo de correccion desconocido: {mode}")
 
@@ -282,6 +280,17 @@ def _corregir_y_escribir(
     return Outcome(True, "escrito", adapter=adapter.name, chars=len(original))
 
 
+def _nube(modelo: str | None = None) -> object:
+    """
+    El proovedor de nube para la caida: NVIDIA NIM si tiene clave, si no
+    Gemini. El `modelo` dado (por --modelo u OLLAMA_MODEL) no aplica a la
+    nube: cada nube tiene sus propios nombres de modelo.
+    """
+    from .proovedor import seleccion_nube
+
+    return seleccion_nube()
+
+
 # --- Hibrido: local primero, nube como respaldo -----------------------------
 #
 # La correccion local (Ollama) es rapida y offline, pero un modelo chico a
@@ -311,12 +320,12 @@ def _reintentar_por_nube(
     global _local_en_ultimo_pedido
     _local_en_ultimo_pedido = False
 
-    from .ai import CorrectorIA
     from .guards import validate as _validate
+    from .proovedor import seleccion_nube
 
     original = capture.text
     try:
-        candidate = CorrectorIA(modelo=modelo).corregir(original)
+        candidate = seleccion_nube().corregir(original)
     except Exception as exc:
         log.warning("la correccion por la nube fallo: %s", exc)
         feedback.error()
