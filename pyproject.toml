@@ -1,0 +1,34 @@
+[project]
+name = "g360-textofix"
+version = "1.0.0"
+description = "Corrector de texto para Windows: atajo global, captura de la seleccion y reemplazo en el lugar."
+requires-python = ">=3.11"
+dependencies = [
+    "uiautomation>=2.0.29",
+    "pywin32>=312",
+]
+
+# Etapa 2 (Gemini) queda fuera de forma deliberada: la API key y la
+# facturacion se configuran despues. Ver README > Etapa 2.
+[dependency-groups]
+dev = ["pytest>=8.0"]
+
+[tool.uv]
+# Proyecto virtual: no se empaqueta, se ejecuta con `uv run python src/main.py`.
+package = false
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.ruff.lint]
+# BLE001 / S110 / S112: estas reglas piden narrow excepts, pero aqui el
+# invariante del corrector es exactamente lo contrario: capturar CUALQUIER
+# fallo (COM, SendInput, portapapeles bloqueado) para devolver el control y
+# dejar el texto original intacto. Un except especifico que no encaje seria
+# la excepcion que pise la seleccion del usuario.
+ignore = ["BLE001", "S110", "S112", "PIE810"]
