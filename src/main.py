@@ -20,16 +20,10 @@ import sys
 
 from core import feedback
 from core.config import (
-    MOD_CONTROL,
-    MOD_NOREPEAT,
-    MOD_SHIFT,
-    VK_E,
     Config,
-    Hotkey,
     cargar_dotenv,
 )
-from core.engine import detect_context, run_once
-from core.hotkey import HotkeyListener
+from core.engine import aplicar_texto, detect_context, run_once, texto_en_pantalla
 from core.logsetup import setup_logging
 
 VERSION = "1.0.0"
@@ -100,7 +94,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def _install_console_handler(listener: HotkeyListener) -> None:
+def _install_console_handler(listener) -> None:
     """
     Cierra el bucle con Ctrl+C o al cerrar la consola.
 
@@ -161,34 +155,103 @@ def main(argv: list[str] | None = None) -> int:
         log.warning("desactivado por configuracion (TEXTOFIX_ENABLED=0)")
         return 0
 
-    hotkey = Hotkey(
-        modifiers=MOD_CONTROL | MOD_SHIFT | MOD_NOREPEAT,
-        virtual_key=VK_E,
-        label="Ctrl+Shift+E",
-    )
-    listener = HotkeyListener(hotkey.modifiers, hotkey.virtual_key, hotkey.label)
-    _install_console_handler(listener)
+    from core.bandeja import Bandeja
+    from core.estado import Correccion, Estado
+    from core.hotkey import AtajoInvalido, EscuchaAtajos, parsear_atajo
+    from core.perfil import leer_config
+    from core.winapi import foreground_context
 
-    log.info("%s v%s escuchando %s (Ctrl+C para salir)", APP_NAME, VERSION, hotkey.label)
+    perfil = leer_config()
 
-    # Aviso honesto sobre que se esta haciendo: en modo mock el texto vuelve
-    # igual y no se ve nada, lo que parece un fallo pero no lo es.
+    # --- Atajos ---------------------------------------------------------------
+    textos = {
+        "corregir": perfil.get("hotkey_corregir", "CTRL+SHIFT+E"),
+        "deshacer": perfil.get("hotkey_deshacer", "CTRL+SHIFT+Z"),
+        "rehacer": perfil.get("hotkey_rehacer", "CTRL+SHIFT+R"),
+    }
+    atajos = {}
+    for accion, texto in textos.items():
+        try:
+            atajos[accion] = parsear_atajo(texto)
+        except AtajoInvalido as exc:
+            log.error("el atajo de %s es invalido (%s); se deja sin asignar", accion, exc)
+
+    estado = Estado(activo=perfil.get("activo", True), modo=modo)
+    escucha = EscuchaAtajos(atajos)
+    _install_console_handler(escucha)
+
+    # --- Acciones -------------------------------------------------------------
+    def _proceso_actual() -> str:
+        ctx = foreground_context()
+        return ctx.process.lower() if ctx else ""
+
+    def _registrar_si_tocaron() -> None:
+        estado.comprobar_cambio(texto_en_pantalla())
+
+    def accion_corregir() -> None:
+        if not estado.activo:
+            log.info("corrector desactivado")
+            feedback.no_selection()
+            bandeja.refrescar()
+            return
+        _registrar_si_tocaron()
+        outcome = run_once(
+            cfg,
+            mode=modo,
+            transform=args.mock_transform,
+            al_corregir=lambda o, c, p: estado.registrar_correccion(
+                Correccion(proceso=p, original=o, corregido=c)
+            ),
+        )
+        if not outcome.ok:
+            log.info("sin correccion que deshacer: %s", outcome.reason)
+        bandeja.refrescar()
+
+    def _deshacer_rehacer(al_deshacer: bool) -> None:
+        proceso = _proceso_actual()
+        _registrar_si_tocaron()
+
+        preparar = estado.preparar_deshacer if al_deshacer else estado.preparar_rehacer
+        texto, motivo = preparar(proceso)
+
+        if texto is None:
+            log.info("no se %s: %s", "deshizo" if al_deshacer else "rehizo", motivo)
+            feedback.error()
+            bandeja.refrescar()
+            return
+
+        outcome = aplicar_texto(texto)
+        if not outcome.ok:
+            # No se escribio: el bucle no debe creer que si.
+            estado.revertir_preparacion()
+        bandeja.refrescar()
+
+    acciones = {
+        "corregir": accion_corregir,
+        "deshacer": lambda: _deshacer_rehacer(True),
+        "rehacer": lambda: _deshacer_rehacer(False),
+        "salir": escucha.stop,
+    }
+
+    bandeja = Bandeja(estado, acciones)
+    bandeja.iniciar()
+
+    etiquetas = escucha.etiquetas()
+    log.info("%s v%s", APP_NAME, VERSION)
+    log.info("  corregir : %s", etiquetas.get("corregir", "-"))
+    log.info("  deshacer : %s", etiquetas.get("deshacer", "-"))
+    log.info("  rehacer  : %s", etiquetas.get("rehacer", "-"))
+    log.info("  bandeja activa. Ctrl+C para salir.")
+
     if modo == MODO_IA:
         log.info("MODO IA: se corrige con Gemini. Cada correccion consume cuota.")
-    elif args.mock_transform == "wrap":
-        log.info(
-            "MODO DEMO: el texto se devuelve entre comillas angulares, para que "
-            "veas donde se escribio. No se corrige todavia."
-        )
     else:
         log.warning(
-            "MODO SIMULADO: el texto se devuelve SIN corregir, asi que no se ve "
-            "ningun cambio. Para comprobar que funciona: --mock-transform wrap. "
-            "Para corregir de verdad: --modo ia"
+            "MODO SIMULADO: el texto se devuelve SIN corregir. Para corregir de verdad: --modo ia"
         )
 
     try:
-        listener.start(lambda: run_once(cfg, mode=modo, transform=args.mock_transform))
+        escucha.start(lambda accion: acciones.get(accion, lambda: None)())
     except OSError as exc:
         log.error("%s", exc)
         return 2

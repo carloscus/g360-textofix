@@ -105,13 +105,21 @@ def correct(text: str, mode: str, transform: str) -> str | None:
 # --- Ciclo -------------------------------------------------------------------
 
 
-def run_once(cfg: Config, mode: str = "mock", transform: str = "roundtrip") -> Outcome:
-    """Ejecuta una correccion sobre lo que este seleccionado en pantalla."""
+def run_once(
+    cfg: Config, mode: str = "mock", transform: str = "roundtrip", al_corregir=None
+) -> Outcome:
+    """
+    Ejecuta una correccion sobre lo que este seleccionado en pantalla.
+
+    `al_corregir(original, corregido, proceso)` se invoca solo si se llego a
+    escribir. Los textos nunca se loguean, pero deshacer necesita el par en
+    memoria: por eso viajan por el callback y no por el log.
+    """
     with com_inicializado():
-        return _ciclo(cfg, mode, transform)
+        return _ciclo(cfg, mode, transform, al_corregir)
 
 
-def _ciclo(cfg: Config, mode: str, transform: str) -> Outcome:
+def _ciclo(cfg: Config, mode: str, transform: str, al_corregir) -> Outcome:
     """El ciclo de la correccion. Ver `run_once`."""
     ctx = foreground_context()
     if ctx is None:
@@ -149,7 +157,7 @@ def _ciclo(cfg: Config, mode: str, transform: str) -> Outcome:
     log.debug("leido via %s: %s", adapter.name, describe(original))
 
     try:
-        return _corregir_y_escribir(adapter, ctx, cfg, capture, mode, transform)
+        return _corregir_y_escribir(adapter, ctx, cfg, capture, mode, transform, al_corregir)
     finally:
         # Siempre, se haya escrito o no: deja el portapapeles como estaba.
         # Si la correccion se rechaza, el usuario no debe quedarse con su
@@ -160,7 +168,7 @@ def _ciclo(cfg: Config, mode: str, transform: str) -> Outcome:
             log.debug("release fallo en %s: %s", adapter.name, exc)
 
 
-def _corregir_y_escribir(adapter, ctx, cfg, capture, mode, transform) -> Outcome:
+def _corregir_y_escribir(adapter, ctx, cfg, capture, mode, transform, al_corregir) -> Outcome:
     """Corrige, valida y, si todo cuadra, reemplaza. Ver `run_once`."""
     original = capture.text
     try:
@@ -206,7 +214,83 @@ def _corregir_y_escribir(adapter, ctx, cfg, capture, mode, transform) -> Outcome
         describe(original),
         describe(candidate),
     )
+    if al_corregir is not None:
+        try:
+            al_corregir(original, candidate, ctx.process.lower() if ctx else "")
+        except Exception:
+            log.exception("el seguimiento de la correccion fallo")
     return Outcome(True, "escrito", adapter=adapter.name, chars=len(original))
+
+
+def aplicar_texto(texto: str) -> Outcome:
+    """
+    Escribe `texto` en la seleccion actual, sin pasar por la IA.
+
+    Es lo que usan deshacer y rehacer: no se trata de corregir, sino de
+    devolver el texto a un estado anterior. Comparte el camino de lectura y
+    escritura con la correccion, asi que respeta las mismas garantias: si no
+    hay seleccion, no se escribe nada.
+    """
+    ctx = foreground_context()
+    if ctx is None:
+        feedback.error()
+        return Outcome(False, "sin-ventana-activa")
+
+    if not puede_inyectar(ctx):
+        feedback.error()
+        return Outcome(False, "uipi-bloqueado")
+
+    adapter = pick_adapter(build_adapters(Config.from_env()), ctx)
+    if adapter is None:
+        feedback.error()
+        return Outcome(False, "sin-adaptador")
+
+    try:
+        capture = adapter.read(ctx)
+    except Exception as exc:
+        log.warning("fallo leyendo con %s: %s", adapter.name, exc)
+        feedback.error()
+        return Outcome(False, "fallo-lectura", adapter=adapter.name)
+
+    if capture is None or not capture.text.strip():
+        feedback.no_selection()
+        return Outcome(False, "sin-seleccion", adapter=adapter.name)
+
+    try:
+        adapter.write(ctx, capture, texto)
+    except Exception as exc:
+        log.warning("fallo escribiendo con %s: %s", adapter.name, exc)
+        feedback.error()
+        return Outcome(False, "fallo-escritura", adapter=adapter.name)
+    finally:
+        try:
+            adapter.release(capture)
+        except Exception as exc:
+            log.debug("release fallo: %s", exc)
+
+    feedback.ok()
+    log.info("texto aplicado en %s (%s)", adapter.name, describe(texto))
+    return Outcome(True, "escrito", adapter=adapter.name, chars=len(texto))
+
+
+def texto_en_pantalla(ctx: WindowContext | None = None) -> str | None:
+    """
+    Lee el texto del control enfocado, para comprobar si el usuario lo cambio.
+
+    Se usa para invalidar el bucle de deshacer: si el texto ya no es el que
+    dejamos, deshacer escribiria encima de lo que el usuario puso despues.
+    """
+    ctx = ctx or foreground_context()
+    if ctx is None:
+        return None
+    try:
+        adapter = pick_adapter(build_adapters(Config.from_env()), ctx)
+        if adapter is None:
+            return None
+        leer = getattr(adapter, "_texto_del_control", None)
+        return leer() if callable(leer) else None
+    except Exception:
+        return None
 
 
 def detect_context() -> WindowContext | None:

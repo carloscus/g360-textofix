@@ -6,6 +6,8 @@ requires-python = ">=3.11"
 dependencies = [
     "uiautomation>=2.0.29",
     "pywin32>=312",
+    "pystray>=0.19.5",
+    "pillow>=10",
 ]
 
 [project.optional-dependencies]

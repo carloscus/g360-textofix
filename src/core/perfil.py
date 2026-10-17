@@ -183,3 +183,54 @@ def guardar_config(config: dict) -> None:
 
 def ruta_perfil() -> Path:
     return DIR_PERFIL
+
+
+# --- Inicio automatico --------------------------------------------------------
+# Se usa HKCU y no el registro de maquina a proposito: que el corrector arranque
+# solo para el usuario que lo instalo, no para todos los que usan el equipo.
+
+
+def _clave_run() -> str:
+    return r"Software\Microsoft\Windows\CurrentVersion\Run"
+
+
+def ruta_ejecutable() -> Path:
+    """El ejecutable tal como se lanzo, incluso si esta dentro de un .exe."""
+    if getattr(__import__("sys"), "frozen", False):
+        import sys
+
+        return Path(sys.executable)
+    return Path(__file__).resolve().parents[2] / "iniciar.bat"
+
+
+def iniciar_con_windows() -> bool:
+    """Programa el arranque automatico. True si quedo activado."""
+    import winreg
+
+    with winreg.OpenKey(winreg.HKEY_CURRENT_USER, _clave_run(), 0, winreg.KEY_SET_VALUE) as k:
+        winreg.SetValueEx(k, "g360-textofix", 0, winreg.REG_SZ, f'"{ruta_ejecutable()}"')
+    log.info("inicio automatico activado: %s", ruta_ejecutable())
+    return True
+
+
+def quitar_inicio_con_windows() -> bool:
+    import winreg
+
+    with winreg.OpenKey(winreg.HKEY_CURRENT_USER, _clave_run(), 0, winreg.KEY_SET_VALUE) as k:
+        try:
+            winreg.DeleteValue(k, "g360-textofix")
+        except FileNotFoundError:
+            pass
+    log.info("inicio automatico quitado")
+    return False
+
+
+def tiene_inicio_con_windows() -> bool:
+    import winreg
+
+    try:
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, _clave_run()) as k:
+            winreg.QueryValueEx(k, "g360-textofix")
+        return True
+    except (FileNotFoundError, OSError):
+        return False

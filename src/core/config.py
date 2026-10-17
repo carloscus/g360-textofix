@@ -14,16 +14,6 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
-# Modificadores y teclas de Windows (winuser.h)
-MOD_ALT = 0x0001
-MOD_CONTROL = 0x0002
-MOD_SHIFT = 0x0004
-MOD_WIN = 0x0008
-MOD_NOREPEAT = 0x4000
-
-VK_E = 0x45
-VK_ESCAPE = 0x1B
-
 
 def _env_bool(name: str, default: bool) -> bool:
     raw = os.environ.get(name)
@@ -70,17 +60,7 @@ def cargar_dotenv(ruta: Path | None = None) -> bool:
 
 
 @dataclass(frozen=True)
-class Hotkey:
-    """Atajo global. Por defecto Ctrl+Shift+E."""
-
-    modifiers: int = MOD_CONTROL | MOD_SHIFT | MOD_NOREPEAT
-    virtual_key: int = VK_E
-    label: str = "Ctrl+Shift+E"
-
-
-@dataclass(frozen=True)
 class Config:
-    hotkey: Hotkey = field(default_factory=Hotkey)
 
     # Espera a que la app destino responda al Ctrl+C sintetico.
     clipboard_timeout_ms: int = 400
