@@ -4,8 +4,12 @@ setlocal
 
 title g360-textofix - Corrector de texto
 
-:: Lanzador unico del proyecto. Sincroniza dependencias y arranca.
-:: Si ya tenes el .exe, no hace falta: ese va solo.
+:: Lanzador del proyecto en modo desarrollo: sincroniza dependencias y
+:: arranca con el codigo de src/. Para uso diario, el .exe de dist/ va
+:: solo y no necesita uv.
+::
+:: OJO: correr solo UNA instancia. El .exe y este .bat usan los mismos
+:: atajos (Ctrl+Shift+E/Z/R): el segundo en arrancar falla con error 1409.
 
 where uv >nul 2>&1
 if errorlevel 1 (
@@ -16,18 +20,21 @@ if errorlevel 1 (
 )
 
 echo [G360] Sincronizando dependencias...
-uv sync
+:: El extra ai trae google-genai (nube) y httpx (Ollama local y NVIDIA NIM).
+uv sync --extra ai
 if errorlevel 1 (
     echo [ERROR] No se pudieron instalar las dependencias.
     pause
     exit /b 1
 )
 
-echo [G360] Iniciando corrector. Atajos: Ctrl+Shift+E / Z / R
-echo [G360] La primera vez te pide la clave de Gemini y la guarda cifrada.
+echo.
+echo [G360] Atajos: Ctrl+Shift+E corregir / Z deshacer / R rehacer.
+echo [G360] Correccion: Ollama local si esta corriendo (sin cuota, sin red);
+echo [G360] si no, la nube (NVIDIA NIM o Gemini, la que tenga clave).
+echo [G360] Si los atajos no registran (error 1409), hay OTRA instancia
+echo [G360] corriendo: cerrala primero.
 echo [G360] Ctrl+C para salir.
 echo.
-:: El extra ai trae google-genai (nube) y httpx (Ollama local).
-uv sync --extra ai --quiet
 uv run python src\main.py --modo ia %*
 if errorlevel 1 pause
