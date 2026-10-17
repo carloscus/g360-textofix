@@ -1,0 +1,30 @@
+# Entornos y dependencias
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+
+# Cache de herramientas
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Configuracion local: la clave de API NUNCA se commitea
+.env
+.env.local
+*.local.toml
+
+# Estado de IDEs (regla WORKTREES.md: al .gitignore, nunca al indice)
+.antigravitycli/
+.gemini/
+.cursor/
+.idea/
+.vscode/
+
+# Sistema
+Thumbs.db
+desktop.ini
+.DS_Store
