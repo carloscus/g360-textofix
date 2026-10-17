@@ -106,9 +106,11 @@ def correct(text: str, mode: str, transform: str, modelo: str | None = None) -> 
         return mock_correct(text, transform)
 
     if mode == "ia":
+        global _local_en_ultimo_pedido
         from .proovedor import es_ollama, seleccion_proveedor
 
         prov = seleccion_proveedor()
+        _local_en_ultimo_pedido = es_ollama(prov)
 
         # Si el usuario fijo un modelo por --modelo (o OLLAMA_MODEL), lo
         # aplica solo al proovedor Ollama. En Gemini, el modelo va por GEMINI_MODEL.
@@ -193,9 +195,27 @@ def _ciclo(
     log.debug("leido via %s: %s", adapter.name, describe(original))
 
     try:
-        return _corregir_y_escribir(
+        outcome = _corregir_y_escribir(
             adapter, ctx, cfg, capture, mode, transform, al_corregir, modelo
         )
+
+        # HIBRIDO: si la correccion local fue RECHAZADA por las guardas
+        # (se acorto, se "charlo", invento), se reintenta la misma accion
+        # con el proveedor de nube, que es mas confiable con el prompt
+        # conservador. El usuario no elige: si el local no confia, la
+        # nube lo respalda en el mismo pedido.
+        if (
+            not outcome.ok
+            and outcome.reason not in ("sin-seleccion", "sin-cambios", "fallo-lectura")
+            and mode == "ia"
+            and _usaba_local()
+        ):
+            log.info("la guarda rechazo la correccion local: se reintenta por la nube")
+            outcome = _reintentar_por_nube(
+                adapter, ctx, cfg, capture, mode, transform, al_corregir, modelo
+            )
+
+        return outcome
     finally:
         # Siempre, se haya escrito o no: deja el portapapeles como estaba.
         # Si la correccion se rechaza, el usuario no debe quedarse con su
@@ -259,6 +279,85 @@ def _corregir_y_escribir(
             al_corregir(original, candidate, ctx.process.lower() if ctx else "")
         except Exception:
             log.exception("el seguimiento de la correccion fallo")
+    return Outcome(True, "escrito", adapter=adapter.name, chars=len(original))
+
+
+# --- Hibrido: local primero, nube como respaldo -----------------------------
+#
+# La correccion local (Ollama) es rapida y offline, pero un modelo chico a
+# veces "charla" o acorta el texto, y las guardas lo rechazan. La respuesta
+# no es dejar el texto intacto (correcto, pero incompleto): es reintentar
+# por la nube, que es mas confiable con el prompt conservador. El usuario
+# no elige: si el local no confia, la nube lo respalda en el mismo pedido.
+
+_local_en_ultimo_pedido = False
+
+
+def _usaba_local() -> bool:
+    """Si el ultimo pedido de la correccion fue con el proveedor local."""
+    return _local_en_ultimo_pedido
+
+
+def _reintentar_por_nube(
+    adapter, ctx, cfg, capture, mode, transform, al_corregir, modelo: str | None = None
+) -> Outcome:
+    """
+    Vuelve a correr la correccion, forzando el proveedor de nube.
+
+    El texto del control no se vuelve a leer: ya esta en `capture`. Solo se
+    re-corrige y se re-valida. Si la nube tampoco confía, se deja el
+    original: es mejor no escribir que escribir algo malo.
+    """
+    global _local_en_ultimo_pedido
+    _local_en_ultimo_pedido = False
+
+    from .ai import CorrectorIA
+    from .guards import validate as _validate
+
+    original = capture.text
+    try:
+        candidate = CorrectorIA(modelo=modelo).corregir(original)
+    except Exception as exc:
+        log.warning("la correccion por la nube fallo: %s", exc)
+        feedback.error()
+        return Outcome(False, "fallo-correccion-nube", adapter=adapter.name)
+
+    if candidate is None:
+        log.warning("la nube no devolvió texto")
+        feedback.error()
+        return Outcome(False, "sin-respuesta-nube", adapter=adapter.name)
+
+    verdict = _validate(original, candidate)
+    if not verdict.ok:
+        # La nube tampoco confié: se deja el original. La guarda sigue
+        # mandando, que es la ultima linea de defensa.
+        log.warning("la nube tampoco confió (%s): se deja el original", verdict.reason)
+        feedback.error()
+        return Outcome(False, verdict.reason, adapter=adapter.name, chars=len(original))
+
+    if not verdict.changed:
+        feedback.ok()
+        return Outcome(True, "sin-cambios", adapter=adapter.name, chars=len(original))
+
+    try:
+        adapter.write(ctx, capture, candidate)
+    except Exception as exc:
+        log.warning("fallo escribiendo (nube): %s", exc)
+        feedback.error()
+        return Outcome(False, "fallo-escritura", adapter=adapter.name, chars=len(original))
+
+    feedback.ok()
+    log.info(
+        "corregido por la nube en %s (%s -> %s)",
+        adapter.name,
+        describe(original),
+        describe(candidate),
+    )
+    if al_corregir is not None:
+        try:
+            al_corregir(original, candidate, ctx.process.lower() if ctx else "")
+        except Exception:
+            log.exception("el seguimiento de la correccion (nube) fallo")
     return Outcome(True, "escrito", adapter=adapter.name, chars=len(original))
 
 
