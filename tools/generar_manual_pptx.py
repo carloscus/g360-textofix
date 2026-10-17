@@ -159,7 +159,7 @@ def slide_portada():
         Inches(4.5),
         Inches(11.5),
         Inches(0.6),
-        "Corrector de texto para Windows · atajo global · corrección con Gemini",
+        "Corrector de texto para Windows · atajo global · corrección offline (Ollama) o por la nube (Gemini)",
         size=16,
         color=GRIS_CLARO,
     )

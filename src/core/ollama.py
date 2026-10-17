@@ -58,11 +58,14 @@ class ProveedorOllama:
 
     def __init__(
         self,
-        modelo: str = OLLAMA_MODELO_POR_DEFECTO,
+        modelo: str | None = None,
         url: str | None = None,
-        timeout_s: int = 30,
+        timeout_s: int = 120,
     ):
-        self.modelo = modelo
+        # Si no se da modelo, se mira OLLAMA_MODEL. Si tampoco, el default.
+        # Un 8B en CPU sin GPU puede tardar 30-60s por correccion: el
+        # timeout da espacio a eso sin dejar al usuario esperando.
+        self.modelo = modelo or os.environ.get("OLLAMA_MODEL") or OLLAMA_MODELO_POR_DEFECTO
         self.url = (url or os.environ.get("OLLAMA_URL") or OLLAMA_URL_POR_DEFECTO).rstrip("/")
         self.timeout_s = timeout_s
 

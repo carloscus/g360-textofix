@@ -6,9 +6,15 @@ Microherramienta del ecosistema G360. Seleccionás un texto en cualquier
 aplicación, apretás `Ctrl+Shift+E` y el texto seleccionado se corrige y se
 reemplaza donde estaba, sin perder el formato.
 
-**Estado: Etapa 3 terminada.** Corrige con Gemini, vive en la bandeja del
-sistema, tiene deshacer/rehacer, atajos configurables y se empaqueta en un
-`.exe` único de ~26 MB.
+**Estado: Etapa 3 terminada.** Corrige **offline con Ollama local** por
+defecto (sin cuota, sin red, el texto no sale de tu maquina) y cae a Gemini
+por la nube cuando no hay Ollama. Vive en la bandeja del sistema, tiene
+deshacer/rehacer, atajos configurables en caliente, y se empaqueta en un
+`.exe` único de ~34 MB.
+
+Los modelos que mejor corrigen el espanol peruano con el prompt conservador
+se miden con `tools/comparar_modelos.py`. Por defecto corre
+`llama3.2:3b` (el único que a velocidad utilizable en CPU).
 
 ---
 
@@ -25,7 +31,7 @@ sistema, tiene deshacer/rehacer, atajos configurables y se empaqueta en un
 - [Clave de la API y privacidad de la clave](#clave-de-la-api-y-privacidad-de-la-clave)
 - [Cómo decide a quién corregir](#cómo-decide-a-quién-corregir)
 - [Garantías de seguridad](#garantías-de-seguridad)
-- [Corrección con Gemini](#corrección-con-gemini)
+- [Corrección con Gemini y Ollama local](#corrección-con-gemini-y-ollama-local)
 - [Estructura](#estructura)
 - [Testing](#testing)
 - [Licencia](#licencia)
@@ -448,27 +454,74 @@ es peor que fallar.
 
 ---
 
-## Corrección con Gemini
+## Corrección con Gemini y Ollama local
 
-Se activa con `--modo ia` (o con el `.exe`, que lo detecta solo). Requiere:
+Hay **dos proveedores** y el corrector elige solo el que tenga disponible:
 
-1. Una clave de [Google AI Studio](https://aistudio.google.com/apikey).
-2. Pegarla en la bandeja (`Configurar clave API…`) o en `.env`.
+| Proveedor | Cuándo se usa | Cuota | Red | Latencia |
+|---|---|---|---|---|
+| **Ollama local** (default) | Si Ollama está corriendo con un modelo descargado | 0 | No | 4–15 s |
+| **Gemini** (fallback) | Si no hay Ollama, o si `PROVEEDOR_IA=gemini` | 5/min gratis | Sí | 2–5 s |
+
+```powershell
+# Ollama: corriendo en :11434, sin red, sin clave, sin cuota
+ollama pull qwen3:8b          # mejor calidad para español
+ollama pull gemma3:4b         # más liviano
+ollama pull llama3.2:3b       # el más chico, rápido en CPU
+
+# Para obligar uno:
+$env:PROVEEDOR_IA = "gemini"    # o "ollama"
+$env:OLLAMA_MODEL = "qwen3:8b"  # modelo local a usar
+```
+
+### Ollama local (la opción por defecto)
+
+El `.exe` **no necesita clave ni red**. Si el usuario instaló Ollama y
+descargó un modelo, corre offline para siempre. El texto **no sale de su
+máquina**.
+
+Para probar con un modelo local, primero hay que instalar Ollama
+(descarga de [ollama.com](https://ollama.com), instalador estándar de
+Windows) y descargar un modelo:
+
+```powershell
+ollama pull qwen3:8b
+```
+
+El modelo `qwen3:8b` (≈ 5 GB) es el que mejor responde al prompt conservador
+del proyecto. El `gemma3:4b` (≈ 3.4 GB) corre más rápido y es suficiente
+para correcciones cortas.
+
+**Elegir modelo** con `tools/comparar_modelos.py`:
+
+```powershell
+uv run python tools/comparar_modelos.py          # todos, batería completa
+uv run python tools/comparar_modelos.py qwen3    # solo qwen3
+```
+
+El resultado es una tabla por modelo: exactos, rechazados por la guarda y
+latencia. Se usa para elegir entre los 4 sin probar uno a uno.
 
 ### Cuota gratuita y de pago: lo que hay que saber
 
-La cuota **gratuita** es cómoda para uso personal: unos 5 pedidos por minuto,
-suficiente para corregir a mano mientras trabajás. Con `--bateria` conviene
-poner `--pausa 13` para no quedarte sin cuota a mitad de medida.
+La cuota **gratuita** de Gemini es cómoda para uso personal: unos 5 pedidos
+por minuto, suficiente para corregir a mano mientras trabajás. Con
+`--bateria` conviene poner `--pausa 13` para no quedarte sin cuota a mitad
+de medida.
 
 Los [términos de Gemini API](https://ai.google.dev/gemini-api/terms) dicen que
 en la cuota gratuita Google usa los textos enviados para mejorar sus productos
 y que **revisores humanos pueden leerlos**. En la de pago no se usan para
 entrenar.
 
-**Para uso personal, la gratuita alcanza.** Si el corrector se va a usar sobre
-correo, documentos o sistemas de una empresa, **corresponde activar la
+**Para uso personal, la gratuita alcanza.** Si el corrector se va a usar
+sobre correo, documentos o sistemas de una empresa, **corresponde activar la
 facturación**: no por el límite de pedidos, sino por los términos.
+
+**Con Ollama local, no aplica nada de lo anterior**: el texto no sale de la
+máquina, no hay cuota y no hay clave. Si usás Ollama, no necesitás
+activar facturación.
+
 
 ### El idioma: español peruano
 
