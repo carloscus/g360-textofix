@@ -30,6 +30,13 @@ class Caso:
 
 CORRECCIONES = [
     Caso(
+        "commodo-typo",
+        "El cliente encontro un commodo en el contrato",
+        "El cliente encontró un comodato en el contrato",
+        "Doble-consonante: 'commodo' no existe en espanol. Se escribe "
+        "'comodato' (o, segun el contexto, 'comodidad').",
+    ),
+    Caso(
         "tilde-acentos",
         "El cliente pidio tres cajas",
         "El cliente pidió tres cajas",
