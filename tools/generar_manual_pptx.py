@@ -13,8 +13,8 @@ import sys
 from pathlib import Path
 
 from pptx import Presentation
-from pptx.util import Inches, Pt, Emu
 from pptx.dml.color import RGBColor
+from pptx.util import Emu, Inches, Pt
 
 # Colores G360
 VERDE = RGBColor(0x00, 0xD0, 0x84)

@@ -15,10 +15,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from core.bateria import casos_disponibles  # noqa: E402
-from core.casos import TODOS  # noqa: E402
-from core.guards import validate  # noqa: E402
-from core.ollama import ProveedorOllama  # noqa: E402
+from core.casos import TODOS
+from core.guards import validate
+from core.ollama import ProveedorOllama
 
 MODELOS = [
     ("llama3.2:3b", "ligero, 3B"),
@@ -55,6 +54,9 @@ def medir(prov: ProveedorOllama, casos: list) -> tuple[dict, float]:
         resumen[caso.nombre] = correccion_buena(caso.entrada, salida, caso.esperado)
         time.sleep(0.2)  # no se abusa del CPU
     return resumen, (sum(tiempos) / len(tiempos) if tiempos else 0.0)
+
+
+def main() -> int:
     casos = TODOS
     print(f"{len(casos)} casos de la bateria")
     print()
