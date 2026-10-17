@@ -23,6 +23,36 @@ log = logging.getLogger(LOGGER_NAME)
 
 MODELO_POR_DEFECTO = "gemini-3.8-flash"
 
+
+class CuotaAgotada(RuntimeError):
+    """La API rechazo la peticion por cuota. No es un fallo del corrector."""
+
+
+def _es_cuota(exc: Exception) -> bool:
+    texto = str(exc)
+    return "429" in texto or "RESOURCE_EXHAUSTED" in texto
+
+
+def _espera_sugerida(exc: Exception) -> int | None:
+    """La API indica cuanto esperar, en segundos."""
+    import re
+
+    encontrado = re.search(r'retryDelay["\']?\s*[:=]\s*["\']?(\d+)', str(exc))
+    return int(encontrado.group(1)) if encontrado else None
+
+
+def _mensaje_de_cuota(exc: Exception) -> str:
+    """Explica el problema en castellano, sin el muro de JSON de la API."""
+    if "FreeTier" in str(exc):
+        return (
+            "Se agoto la cuota GRATUITA de Gemini (5 peticiones por minuto).\n"
+            "Activa la facturacion en Google AI Studio: ademas de quitar el "
+            "limite, es lo que evita que tus textos se usen para entrenar el "
+            "modelo o sean revisados por personas."
+        )
+    return "Se agoto la cuota de Gemini API. Revisa tu plan en Google AI Studio."
+
+
 PROMPT = """\
 Eres un corrector de ortografia y gramatica en espanol PERUANO, para texto \
 de trabajo (correos, informes, mensajes a clientes).
@@ -125,11 +155,7 @@ class CorrectorIA:
             thinking_config=types.ThinkingConfig(thinking_level="low"),
         )
 
-        respuesta = cliente.models.generate_content(
-            model=self.modelo,
-            contents=PROMPT + texto,
-            config=config,
-        )
+        respuesta = self._pedir(cliente, config, texto)
 
         transcurrido = time.monotonic() - inicio
         candidato = self._texto_de(respuesta)
@@ -141,6 +167,32 @@ class CorrectorIA:
             describe(candidato),
         )
         return candidato
+
+    def _pedir(self, cliente, config, texto: str):
+        """
+        Llama al modelo, esperando si se topa con el limite de cuota.
+
+        La cuota gratuita permite 5 peticiones por minuto. La de pago es mucho
+        mayor, pero reintentar igual hace que la herramienta sirva en los dos
+        casos sin cambiar el codigo.
+        """
+        espera = 0
+        for intento in range(3):
+            try:
+                return cliente.models.generate_content(
+                    model=self.modelo,
+                    contents=PROMPT + texto,
+                    config=config,
+                )
+            except Exception as exc:
+                if not _es_cuota(exc) or intento == 2:
+                    raise CuotaAgotada(_mensaje_de_cuota(exc)) from exc
+                espera = _espera_sugerida(exc) or 15
+                log.warning(
+                    "cuota alcanzada: se reintenta en %ds (intento %d/2)", espera, intento + 1
+                )
+                time.sleep(espera)
+        raise RuntimeError("no se llego a hacer la consulta")
 
     @staticmethod
     def _texto_de(respuesta) -> str | None:

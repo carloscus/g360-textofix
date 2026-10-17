@@ -73,6 +73,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Con --bateria, corre solo los casos cuyo nombre contenga este texto.",
     )
     parser.add_argument(
+        "--pausa",
+        type=float,
+        default=0.0,
+        help=(
+            "Segundos de pausa entre casos de la bateria. En cuota gratuita "
+            "(5 por minuto) convie poner 13 o mas."
+        ),
+    )
+    parser.add_argument(
         "--mock-transform",
         choices=("roundtrip", "wrap"),
         default="roundtrip",
@@ -128,7 +137,7 @@ def main(argv: list[str] | None = None) -> int:
         sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "tests"))
         from core.bateria import ejecutar
 
-        return ejecutar(args.filtro)
+        return ejecutar(args.filtro, args.pausa)
 
     if args.diagnostico:
         log.info("diagnostico: ventana activa en primer plano")

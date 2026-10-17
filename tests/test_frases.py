@@ -109,8 +109,8 @@ INVARIANTES = [
     ),
     Caso(
         "peru-combustible",
-        "El precio del combustible subio esta semana",
-        "El precio del combustible subio esta semana",
+        "El precio del combustible subió esta semana",
+        "El precio del combustible subió esta semana",
         nota="'combustible' es peruano correcto, no es 'gasolina'.",
     ),
     Caso(
@@ -127,8 +127,8 @@ INVARIANTES = [
     ),
     Caso(
         "peru-fecha",
-        "La reunion es el 12/05/2026 en la oficina de Lima",
-        "La reunion es el 12/05/2026 en la oficina de Lima",
+        "La reunión es el 12/05/2026 en la oficina de Lima",
+        "La reunión es el 12/05/2026 en la oficina de Lima",
         nota="No se cambia ni el orden ni las cifras de la fecha.",
     ),
     Caso(
