@@ -57,7 +57,7 @@ ejecutar.
 | Bloc de notas (Windows 11) | ✅ | ✅ | Solo expone `ValuePattern`, va por portapapeles |
 | Chrome: `<textarea>` | ✅ | ✅ | Lee por `TextPattern`, sin pasar por portapapeles |
 | Chrome: `contenteditable` | ✅ | ✅ | Ídem |
-| **Flet / Flutter (campos)** | ✅ lectura | ⚠️ campo entero | No expone selección ni acepta `Ctrl+C` sintético |
+| **Flet / Flutter (campos)** | ✅ | ✅ | Sin `TextPattern` y sin `Ctrl+C`: corrige el campo entero |
 | Word | ✅ COM | ✅ | Conserva párrafos y formato; no duplica párrafos |
 | Excel | ✅ COM | ✅ | Solo celdas de texto; fórmulas y números intactos |
 
@@ -178,11 +178,36 @@ hecho.
 
 **El precio, dicho claro:** en esas apps se corrige y se reescribe el **campo
 entero**. No se pierde texto (todo el contenido se conserva y se corrige), pero
-si habías seleccionado solo una parte, esa intención se ignora. Además los
-campos de **varias líneas se rechazan**: `SetValue()` podría aplanarlos.
+si habías seleccionado solo una parte, esa intención se ignora.
 
 **En esos casos el log lo dice**: `sin seleccion detectable: se corrige el campo
 entero (N caracteres)`.
+
+### Flutter/Flet: escribir a mano
+
+Flutter no es un control de Windows: dibuja el texto él mismo. Medido sobre una
+app Flet real, casi nada de lo habitual funciona:
+
+| Vía | Resultado |
+|---|---|
+| `TextPattern` (saber la selección) | No existe |
+| `Ctrl+C` / `Ctrl+V` sintéticos | No hacen nada |
+| `ValuePattern.SetValue()` | Falla siempre con "Unspecified error" |
+| `Home` / `End` / triple clic | No seleccionan |
+| **`Ctrl+End`** | **Sí funciona** |
+| **Retroceso** | **Sí funciona** |
+| **Escribir con `KEYEVENTF_UNICODE`** | **Sí funciona** |
+
+Así que el campo se limpia con tantos Retrocesos como caracteres tenga (con
+margen) y se vuelve a escribir. Los eventos van en un solo `SendInput`: enviados
+de a uno, Flutter pierde algunos y el campo queda con restos.
+
+Y **no se hace clic antes de escribir**: el usuario ya hizo clic en el campo
+antes de apretar el atajo. Añadir un clic extra dejaba el cursor en medio del
+texto y la escritura fallaba.
+
+Los campos de **varias líneas se rechazan**: no hay forma de saber dónde termina
+el texto y un borrado a ciegas sería peligroso.
 
 ---
 
@@ -296,6 +321,7 @@ uv run python tests/smoke_hilo.py          # el ciclo completo desde un hilo de 
 uv run python tests/smoke_hotkey.py        # atajo global, sin ráfaga, cierre limpio
 uv run python tests/smoke_privacidad.py    # logs sin texto, portapapeles intacto
 uv run python tests/smoke_campo_entero.py  # el ultimo recurso y su guarda multilínea
+uv run --with flet python tests/smoke_flet.py  # app Flutter real (requiere flet)
 uv run python tests/smoke_notepad.py       # Bloc de notas
 uv run python tests/smoke_navegador.py     # Chrome: textarea y contenteditable
 uv run python tests/smoke_office.py        # Word y Excel

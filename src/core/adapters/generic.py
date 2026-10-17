@@ -37,6 +37,7 @@ from ..winapi import (
     clipboard_read,
     clipboard_soportado,
     clipboard_write,
+    escribir_por_teclado,
     marcar_clipboard,
     replace_in_app,
     seleccionar_y_copiar,
@@ -71,14 +72,61 @@ class GenericAdapter:
     # --- UIA (solo lectura) -------------------------------------------------
 
     def _focused(self):
+        """
+        Control de texto sobre el que hay que trabajar.
+
+        No siempre es el que UIA reporta como enfocado. Flutter, por ejemplo,
+        devuelve un PaneControl generico aunque el usuario tenga el cursor
+        dentro de un campo. Cuando el enfocado no sirve, se busca hacia abajo un
+        campo de texto que si sirva.
+        """
         try:
-            return auto.GetFocusedControl()
+            ctrl = auto.GetFocusedControl()
         except Exception as exc:
             # Fallo tipico: COM sin inicializar en este hilo. No se propaga
             # porque el portapapeles todavia puede funcionar, pero conviene
             # que se vea en vez de degradar en silencio.
             log.warning("UIA no disponible en este hilo: %s", exc)
             return None
+
+        if ctrl is None:
+            return None
+
+        if self._sirve(ctrl):
+            return ctrl
+
+        encontrado = self._campo_de_bajo(ctrl)
+        if encontrado is not None:
+            log.debug("el control enfocado no servia: se usa el campo de debajo")
+        return encontrado
+
+    @staticmethod
+    def _sirve(ctrl) -> bool:
+        """True si el control tiene con que trabajar (seleccion o valor)."""
+        try:
+            if ctrl.GetPattern(auto.PatternId.TextPattern) is not None:
+                return True
+            patron = ctrl.GetPattern(auto.PatternId.ValuePattern)
+            return patron is not None and not patron.IsReadOnly
+        except Exception:
+            return False
+
+    def _campo_de_bajo(self, ctrl, profundidad: int = 0):
+        """Primer campo de texto editable dentro de `ctrl`."""
+        if profundidad > 8:
+            return None
+        try:
+            hijos = ctrl.GetChildren()
+        except Exception:
+            return None
+
+        for hijo in hijos:
+            if hijo.ControlTypeName in ("EditControl", "DocumentControl") and self._sirve(hijo):
+                return hijo
+            encontrado = self._campo_de_bajo(hijo, profundidad + 1)
+            if encontrado is not None:
+                return encontrado
+        return None
 
     def _read_uia(self) -> Capture | None:
         """
@@ -220,8 +268,22 @@ class GenericAdapter:
             patron = ctrl.GetPattern(auto.PatternId.ValuePattern)
             if patron is None or patron.IsReadOnly:
                 raise RuntimeError("el control ya no acepta escritura")
-            patron.SetValue(text)
-            log.debug("escrito el campo completo via ValuePattern")
+            try:
+                patron.SetValue(text)
+                log.debug("escrito el campo completo via ValuePattern")
+                return
+            except Exception as exc:
+                # Flutter/Flet rechaza SetValue siempre con "Unspecified
+                # error". Ahi no queda otra via que escribir a mano.
+                log.info("SetValue no disponible (%s): se escribe por teclado", exc)
+
+            # NO se hace clic aqui. El usuario ya hizo clic en el campo antes de
+            # apretar el atajo, asi que el foco de teclado ya esta puesto.
+            # Medido sobre una app Flet real: escribir funciona sin clic, y
+            # FALLA si se hace clic (deja el cursor en medio del texto y el
+            # framework deja de responder igual).
+            escribir_por_teclado(capture.text, text)
+            log.debug("escrito el campo completo por teclado")
             return
 
         # Si la lectura fue por UIA, el portapapeles todavia es del usuario y

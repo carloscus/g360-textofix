@@ -36,6 +36,8 @@ VK_LWIN = 0x5B
 VK_C = 0x43
 VK_V = 0x56
 VK_BACK = 0x08
+VK_END = 0x23
+VK_RETURN = 0x0D
 
 # Los flags de modificador de RegisterHotKey (MOD_*) usan un espacio de
 # numeros distinto al de las teclas reales (VK_*). Hay que traducir.
@@ -66,6 +68,9 @@ kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
 
 _INPUT_KEYBOARD = 1
 _KEYEVENTF_KEYUP = 0x0002
+_KEYEVENTF_UNICODE = 0x0004
+_MOUSEEVENTF_LEFTDOWN = 0x0002
+_MOUSEEVENTF_LEFTUP = 0x0004
 
 ULONG_PTR = ctypes.POINTER(wintypes.ULONG)
 
@@ -341,6 +346,94 @@ def clipboard_paste_into_app(text: str) -> bool:
     time.sleep(0.04)
     send_ctrl(VK_V)
     return True
+
+
+def _evento_tecla(vk: int, scan: int, flags: int):
+    item = _INPUT(type=_INPUT_KEYBOARD)
+    item.union.ki = _KEYBDINPUT(wVk=vk, wScan=scan, dwFlags=flags, time=0, dwExtraInfo=ULONG_PTR())
+    return item
+
+
+def hacer_clic(x: int, y: int) -> None:
+    """Clic real con el raton. Devuelve el raton a donde estaba."""
+    cursor = wintypes.POINT()
+    user32.GetCursorPos(ctypes.byref(cursor))
+    try:
+        user32.SetCursorPos(int(x), int(y))
+        time.sleep(0.06)
+        user32.mouse_event(_MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0)
+        time.sleep(0.06)
+        user32.mouse_event(_MOUSEEVENTF_LEFTUP, 0, 0, 0, 0)
+        time.sleep(0.1)
+    finally:
+        user32.SetCursorPos(cursor.x, cursor.y)
+
+
+def _enviar_teclas(eventos: list) -> int:
+    """Manda un lote de eventos de una vez (mucho mas rapido que uno a uno)."""
+    if not eventos:
+        return 0
+    arreglo = (_INPUT * len(eventos))(*eventos)
+    return user32.SendInput(len(eventos), arreglo, _INPUT_SIZE)
+
+
+def escribir_por_teclado(actual: str, nuevo: str, margen: int = 6) -> None:
+    """
+    Reemplaza el contenido de un campo escribiendo como si fuera un teclado.
+
+    Existe por Flutter/Flet, donde NO funciona ninguna de las vias habituales:
+
+    - `ValuePattern.SetValue()` falla siempre con "Unspecified error".
+    - `Ctrl+C` y `Ctrl+V` sinteticos no hacen nada.
+    - Las teclas de navegacion (Home, End) tampoco.
+
+    Lo que SI funciona, medido sobre una app Flet real:
+
+    - `Ctrl+End` lleva el cursor al final del texto.
+    - El Retroceso borra hacia atras.
+    - Escribir con KEYEVENTF_UNICODE inserta texto.
+
+    Asi que el campo se limpia con tantos Retrocesos como caracteres tenga (con
+    margen, por si el valor leido venia recortado) y se vuelve a escribir.
+
+    Los eventos van en un solo `SendInput`: enviados de a uno, Flutter pierde
+    algunos y el campo queda con restos.
+    """
+    cursor = wintypes.POINT()
+    user32.GetCursorPos(ctypes.byref(cursor))
+
+    try:
+        _enviar_teclas(
+            [
+                _evento_tecla(VK_CONTROL, 0, 0),
+                _evento_tecla(VK_END, 0, 0),
+                _evento_tecla(VK_END, 0, _KEYEVENTF_KEYUP),
+                _evento_tecla(VK_CONTROL, 0, _KEYEVENTF_KEYUP),
+            ]
+        )
+        time.sleep(0.25)
+
+        eventos = []
+        for _ in range(len(actual) + margen):
+            eventos.append(_evento_tecla(VK_BACK, 0, 0))
+            eventos.append(_evento_tecla(VK_BACK, 0, _KEYEVENTF_KEYUP))
+        _enviar_teclas(eventos)
+        time.sleep(0.4)
+
+        eventos = []
+        for caracter in nuevo:
+            if caracter == "\n":
+                eventos.append(_evento_tecla(VK_RETURN, 0, 0))
+                eventos.append(_evento_tecla(VK_RETURN, 0, _KEYEVENTF_KEYUP))
+                continue
+            eventos.append(_evento_tecla(0, ord(caracter), _KEYEVENTF_UNICODE))
+            banderines = _KEYEVENTF_UNICODE | _KEYEVENTF_KEYUP
+            eventos.append(_evento_tecla(0, ord(caracter), banderines))
+        _enviar_teclas(eventos)
+        time.sleep(0.5)
+    finally:
+        # El raton del usuario vuelve a donde estaba.
+        user32.SetCursorPos(cursor.x, cursor.y)
 
 
 def replace_in_app(esperado: str, texto: str, timeout_ms: int) -> None:
