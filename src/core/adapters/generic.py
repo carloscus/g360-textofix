@@ -29,18 +29,17 @@ el texto corregido en el portapapeles del usuario.
 from __future__ import annotations
 
 import logging
-import time
 
 import uiautomation as auto
 
 from ..logsetup import LOGGER_NAME
 from ..winapi import (
-    clipboard_copy_from_app,
-    clipboard_paste_into_app,
     clipboard_read,
     clipboard_soportado,
     clipboard_write,
     marcar_clipboard,
+    replace_in_app,
+    seleccionar_y_copiar,
 )
 from .base import Capture
 
@@ -199,20 +198,13 @@ class GenericAdapter:
 
         log.debug("sin seleccion via UIA: se usa el portapapeles")
         previo = clipboard_read()
-        text = clipboard_copy_from_app(self.clipboard_timeout_ms)
+        text = seleccionar_y_copiar(previo, self.clipboard_timeout_ms)
         # Si la app respondio con algo, queda registrada como "copia bien".
         # Sirve para no confundir despues "no hay seleccion" con "no entiende
         # Ctrl+C", que en Flutter/Flet son indistinguibles a simple vista.
         marcar_clipboard(ctx.process, bool(text))
 
         if not text or not text.strip():
-            # Puede que el Ctrl+C haya copiado algo (por ejemplo solo espacios)
-            # y por eso no haya nada utilizable. En ese caso el portapapeles
-            # quedo modificado y `run_once` va a retornar antes de poder llamar
-            # a release(), asi que se restaura aqui.
-            if text is not None and previo is not None:
-                clipboard_write(previo)
-
             # Ultimo recurso: controles donde no hay ninguna forma de saber la
             # seleccion (Flutter/Flet entre otros). Corrige el campo entero.
             return self._read_valor_entero(ctx)
@@ -240,10 +232,13 @@ class GenericAdapter:
                 previo = clipboard_read()
             capture.meta["clipboard_para_restaurar"] = previo
 
-        # El pegado respeta la seleccion, que es justo lo que queremos.
-        if not clipboard_paste_into_app(text):
-            raise RuntimeError("no se pudo escribir en el portapapeles")
-        time.sleep(self.paste_settle_ms / 1000.0)
+        # Se verifica que la seleccion siga siendo la misma y se borra antes de
+        # pegar, para que apps que insertan en vez de reemplazar no dupliquen
+        # el texto. Ver winapi.replace_in_app.
+        try:
+            replace_in_app(capture.text, text, self.clipboard_timeout_ms)
+        except RuntimeError as exc:
+            raise RuntimeError(str(exc)) from exc
 
     def release(self, capture: Capture) -> None:
         """

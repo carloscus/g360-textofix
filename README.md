@@ -208,6 +208,21 @@ respuesta si:
 - Excel: se revalida la celda justo antes de escribir, por si el usuario movió
   la selección.
 - Excel: hoja protegida → no se escribe.
+
+**Antes de escribir, se revalida la selección** (idea tomada de
+[GhostEdit](https://github.com/nareshnavinash/GhostEdit), que resuelve el mismo
+problema):
+
+1. Se vuelve a copiar lo seleccionado y se compara con lo que se iba a
+   corregir. Si no coincide, no se escribe nada. Cubre el caso de que el
+   usuario haya movido el cursor o hecho clic durante la corrección.
+2. Se borra la selección con Retroceso y recién ahí se pega. Hay aplicaciones
+   que conservan el resaltado pero **pegan como inserción**, lo que dejaría el
+   texto original duplicado delante del nuevo.
+
+Además, antes de cada `Ctrl+C` se **vacía el portapapeles**. Si no, copiar dos
+veces el mismo texto no produce ningún cambio detectable y el corrector
+concluiría erróneamente que no hay nada seleccionado.
 - Word: nunca se reemplaza la marca de párrafo final, así que no se crean
   párrafos de más.
 

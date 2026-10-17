@@ -69,8 +69,11 @@ class HotkeyListener:
             error = ctypes.get_last_error()
             raise OSError(
                 error,
-                f"no se pudo registrar el atajo {self.label or hex(self.virtual_key)} "
-                f"(error {error}). Puede que otra aplicacion ya lo este usando.",
+                f"No se pudo registrar el atajo {self.label or hex(self.virtual_key)} "
+                f"(error {error}).\n"
+                "Lo mas probable es que YA HAYA OTRA INSTANCIA DEL CORRECTOR "
+                "ABIERTA en otra consola: cierrala con Ctrl+C.\n"
+                "Si no es eso, puede ser otra aplicacion usando ese atajo.",
             )
 
         log.info("atajo global registrado: %s", self.label)
@@ -112,9 +115,7 @@ class HotkeyListener:
                 return
             self._busy = True
 
-        worker = threading.Thread(
-            target=self._run, name="textofix-trabajo", daemon=True
-        )
+        worker = threading.Thread(target=self._run, name="textofix-trabajo", daemon=True)
         worker.start()
 
     def _run(self) -> None:

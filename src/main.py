@@ -57,12 +57,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="Informa que ventana esta en primer plano y que adaptador usaria.",
     )
-    parser.add_argument(
-        "--sin-sonido", action="store_true", help="Desactiva los tonos."
-    )
-    parser.add_argument(
-        "-v", "--verbose", action="store_true", help="Detalle en consola."
-    )
+    parser.add_argument("--sin-sonido", action="store_true", help="Desactiva los tonos.")
+    parser.add_argument("-v", "--verbose", action="store_true", help="Detalle en consola.")
 
     return parser.parse_args(argv)
 
@@ -119,14 +115,24 @@ def main(argv: list[str] | None = None) -> int:
     listener = HotkeyListener(hotkey.modifiers, hotkey.virtual_key, hotkey.label)
     _install_console_handler(listener)
 
-    log.info(
-        "%s v%s escuchando %s (Ctrl+C para salir)", APP_NAME, VERSION, hotkey.label
-    )
+    log.info("%s v%s escuchando %s (Ctrl+C para salir)", APP_NAME, VERSION, hotkey.label)
+
+    # Etapa 1 no corrige con IA: devuelve el texto IGUAL. Sin este aviso parece
+    # que no hace nada, cuando en realidad esta funcionando.
+    if args.mock_transform == "wrap":
+        log.info(
+            "MODO DEMO: el texto se devuelve entre comillas angulares, para que "
+            "veas donde se escribio. Aun no corrige (eso es la Etapa 2)."
+        )
+    else:
+        log.warning(
+            "MODO SIMULADO: el texto se devuelve SIN corregir, asi que no se ve "
+            "ningun cambio. Para comprobar que funciona, agrega: "
+            "--mock-transform wrap"
+        )
 
     try:
-        listener.start(
-            lambda: run_once(cfg, mode=MODO_ETAPA_1, transform=args.mock_transform)
-        )
+        listener.start(lambda: run_once(cfg, mode=MODO_ETAPA_1, transform=args.mock_transform))
     except OSError as exc:
         log.error("%s", exc)
         return 2

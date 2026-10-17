@@ -35,6 +35,7 @@ VK_MENU = 0x12
 VK_LWIN = 0x5B
 VK_C = 0x43
 VK_V = 0x56
+VK_BACK = 0x08
 
 # Los flags de modificador de RegisterHotKey (MOD_*) usan un espacio de
 # numeros distinto al de las teclas reales (VK_*). Hay que traducir.
@@ -295,41 +296,76 @@ def clipboard_copy_from_app(timeout_ms: int) -> str | None:
     """
     Copia la seleccion de la app en primer plano via Ctrl+C sintetico.
 
-    La deteccion se hace con el NUMERO DE SECUENCIA del portapapeles, no
-    comparando el contenido: si el usuario copia dos veces el mismo texto, el
-    contenido no cambia pero el portapapeles si, y comparar texto diria
-    falsamente que no hay nada seleccionado.
+    Antes de copiar se VACIA el portapapeles. Es la tecnica que usa GhostEdit y
+    resuelve la ambiguedad de comparar contenidos: si el usuario copia dos
+    veces el mismo texto, el contenido no cambia y comparar texto diria
+    falsamente que no hay nada seleccionado. Vaciando, cualquier texto que
+    aparezca es nuevo por definicion.
 
-    Devuelve None si el portapapeles no cambio dentro del plazo, es decir, si
-    la app no soporta Ctrl+C o no hay nada seleccionado.
+    Devuelve None si no aparecio nada, es decir, si la app no soporta Ctrl+C o
+    no hay nada seleccionado. Quien llama debe restaurar el portapapeles.
     """
-    if _SEQUENCE_DISPONIBLE:
-        antes = clipboard_sequence()
-        send_ctrl(VK_C)
-        limite = time.monotonic() + (timeout_ms / 1000.0)
-        while time.monotonic() < limite:
-            time.sleep(0.02)
-            if clipboard_sequence() != antes:
-                texto = clipboard_read()
-                return texto if texto and texto.strip() else None
-        return None
+    clipboard_write("")
+    time.sleep(0.02)
 
-    # Reserva: comparar contenido es peor, pero mejor que nada.
-    antes_texto = clipboard_read()
     send_ctrl(VK_C)
+
     limite = time.monotonic() + (timeout_ms / 1000.0)
     while time.monotonic() < limite:
         time.sleep(0.02)
-        actual = clipboard_read()
-        if actual is not None and actual != antes_texto:
-            return actual
+        texto = clipboard_read()
+        if texto and texto.strip():
+            return texto
     return None
+
+
+def seleccionar_y_copiar(anterior: str | None, timeout_ms: int) -> str | None:
+    """
+    Copia la seleccion y devuelve el texto, o None si no habia nada.
+
+    Garantiza que el portapapeles quede como estaba tanto si funciona como si
+    falla. Nunca lo deja vacio por nuestra cuenta.
+    """
+    texto = clipboard_copy_from_app(timeout_ms)
+    if texto is None and anterior is not None:
+        # No se copio nada: o no habia seleccion, o la app no atiende el
+        # Ctrl+C. En ambos casos se devuelve el portapapeles al usuario.
+        clipboard_write(anterior)
+    return texto
 
 
 def clipboard_paste_into_app(text: str) -> bool:
     """Pega `text` en la app en primer plano via Ctrl+V."""
     if not clipboard_write(text):
         return False
-    time.sleep(0.02)
+    time.sleep(0.04)
     send_ctrl(VK_V)
     return True
+
+
+def replace_in_app(esperado: str, texto: str, timeout_ms: int) -> None:
+    """
+    Reemplaza la seleccion por `texto`, comprobando antes que sigue siendo la misma.
+
+    Evita dos problemas reales, que GhostEdit tambien documenta:
+
+    1. Entre que se leyo y se escribe, el usuario pudo mover el cursor o hacer
+       clic. Si se pegara a ciegas, el texto caeria donde no debe. Por eso se
+       vuelve a copiar y se compara: si no coincide, se aborta.
+
+    2. Algunas apps mantienen el resaltado pero pegan como INSERCION en el
+       cursor, dejando el texto original duplicado delante. Por eso, tras
+       verificar, se borra la seleccion con Retroceso y recien ahi se pega.
+    """
+    actual = seleccionar_y_copiar(None, timeout_ms)
+    if actual != esperado:
+        raise RuntimeError("la seleccion cambio: no se escribe nada")
+
+    # Retroceso borra lo seleccionado. Como la verificacion de arriba ya
+    # confirmó que lo seleccionado es exactamente lo esperado, borrarlo es
+    # seguro y garantiza que el pegado sea un reemplazo y no una insercion.
+    send_hotkey(VK_BACK, 0)
+    time.sleep(0.04)
+
+    if not clipboard_paste_into_app(texto):
+        raise RuntimeError("no se pudo escribir en el portapapeles")

@@ -27,6 +27,9 @@ if errorlevel 1 (
 echo [G360] Iniciando corrector. Atajo: Ctrl+Shift+E
 echo [G360] Ctrl+C para salir.
 echo.
+echo [G360] ETAPA 1: todavia NO corrige. Usa --mock-transform wrap para que
+echo [G360] veas el texto encerrado en comillas y confirmes que funciona.
+echo.
 
-uv run python src\main.py %*
+uv run python src\main.py --mock-transform wrap %*
 if errorlevel 1 pause
