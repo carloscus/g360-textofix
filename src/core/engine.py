@@ -109,9 +109,24 @@ def correct(text: str, mode: str, transform: str, modelo: str | None = None) -> 
         from .proovedor import es_ollama, seleccion_proveedor
 
         prov = seleccion_proveedor()
+
+        # Si el usuario fijo un modelo por --modelo (o OLLAMA_MODEL), lo
+        # aplica solo al proovedor Ollama. En Gemini, el modelo va por GEMINI_MODEL.
         if es_ollama(prov) and modelo:
             prov.modelo = modelo
-        return prov.corregir(text)
+
+        try:
+            return prov.corregir(text)
+        except Exception as exc:
+            # La caida solo existe cuando el proovedor original es Ollama
+            # y reviento. Si el original era Gemini, reintentar Gemini no
+            # sirve: se propaga el fallo.
+            if not es_ollama(prov):
+                raise
+            from .ai import CorrectorIA
+
+            log.warning("Ollama fallo (%s): se cae a Gemini", exc)
+            return CorrectorIA(modelo=modelo).corregir(text)
 
     raise NotImplementedError(f"modo de correccion desconocido: {mode}")
 
