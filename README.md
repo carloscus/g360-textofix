@@ -299,6 +299,28 @@ y que **revisores humanos pueden leerlos**. En la cuota **de pago** no se usan
 para entrenar. Como el corrector se usa sobre correo, documentos y sistemas
 empresariales, corresponde la cuota de pago.
 
+### El idioma: español peruano
+
+El prompt declara explícitamente **español peruano para texto de trabajo**. No
+declarar la variedad dejaría que el modelo normalice hacia español de España,
+que es justo lo que no queremos.
+
+Y hay una regla explícita en contra de una costumbre común del modelo: **no
+cambiar el vocabulario por variantes regionales**.
+
+```
+"computadora"  NO -> "ordenador"     (peruano correcto)
+"combustible"  NO -> "gasolina"      (peruano correcto)
+"celular"      NO -> "movil"         (peruano correcto)
+"S/ 1,250.00"  NO -> "1250,00 €"     (no toques la moneda)
+"12/05/2026"   NO -> "2026-05-12"    (no toques la fecha)
+```
+
+La batería tiene 6 casos dedicados a esto (`peru-*`). Si el modelo los cambia,
+la batería lo marca, y eso es señal de que hay que reforzar el prompt.
+
+El registro también se respeta: un correo formal no se informaliza.
+
 ### El prompt es conservador a propósito
 
 Un corrector que reescribe es peor que uno que no corrige, porque el usuario
