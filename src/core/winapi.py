@@ -110,9 +110,7 @@ class _INPUT(ctypes.Structure):
 _INPUT_SIZE = ctypes.sizeof(_INPUT)
 _EXPECTED_INPUT_SIZE = 40 if ctypes.sizeof(ctypes.c_void_p) == 8 else 28
 if _INPUT_SIZE != _EXPECTED_INPUT_SIZE:
-    raise RuntimeError(
-        f"struct INPUT mide {_INPUT_SIZE} bytes, se esperaba {_EXPECTED_INPUT_SIZE}"
-    )
+    raise RuntimeError(f"struct INPUT mide {_INPUT_SIZE} bytes, se esperaba {_EXPECTED_INPUT_SIZE}")
 
 
 @dataclass(frozen=True)
@@ -137,9 +135,7 @@ def _process_name(pid: int) -> str:
         try:
             size = wintypes.DWORD(260)
             buffer = ctypes.create_unicode_buffer(size.value)
-            if kernel32.QueryFullProcessImageNameW(
-                handle, 0, buffer, ctypes.byref(size)
-            ):
+            if kernel32.QueryFullProcessImageNameW(handle, 0, buffer, ctypes.byref(size)):
                 return buffer.value.rsplit("\\", 1)[-1]
             return "desconocido"
         finally:
@@ -207,9 +203,7 @@ def _integrity_level(sid) -> int:
 
 
 def _current_integrity() -> int:
-    token = win32security.OpenProcessToken(
-        win32api.GetCurrentProcess(), win32con.TOKEN_QUERY
-    )
+    token = win32security.OpenProcessToken(win32api.GetCurrentProcess(), win32con.TOKEN_QUERY)
     user = win32security.GetTokenInformation(token, win32security.TokenUser)[0]
     return _integrity_level(user[0])
 
@@ -271,6 +265,30 @@ _SEQUENCE_DISPONIBLE = user32.GetClipboardSequenceNumber() != 0
 def clipboard_sequence() -> int:
     """Contador que Windows incrementa en cada cambio del portapapeles."""
     return user32.GetClipboardSequenceNumber()
+
+
+# --- Capacidad de copiar por parte de cada app -------------------------------
+# Hay aplicaciones donde el Ctrl+C sintetico no funciona (Flutter/Flet entre
+# otras). En ellas, "no se copio nada" es ambiguo: puede ser que el usuario no
+# tenga nada seleccionado, o que la app ni siquiera atienda al atajo. Aqui se
+# recuerda que apps han respondido alguna vez, para poder distinguirlas.
+_APPS_CON_PORTAPAPELES: set[str] = set()
+
+
+def marcar_clipboard(proceso: str, funciono: bool) -> None:
+    """Registra si una app alguna vez respondio a un Ctrl+C sintetico."""
+    if funciono and proceso:
+        _APPS_CON_PORTAPAPELES.add(proceso.lower())
+
+
+def clipboard_soportado(proceso: str) -> bool:
+    """
+    True si ya se vio a esta app copiar algo con Ctrl+C sintetico.
+
+    Sirve para no confundir "no hay nada seleccionado" con "esta app no
+    entiende el Ctrl+C".
+    """
+    return (proceso or "").lower() in _APPS_CON_PORTAPAPELES
 
 
 def clipboard_copy_from_app(timeout_ms: int) -> str | None:

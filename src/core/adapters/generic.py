@@ -38,7 +38,9 @@ from ..winapi import (
     clipboard_copy_from_app,
     clipboard_paste_into_app,
     clipboard_read,
+    clipboard_soportado,
     clipboard_write,
+    marcar_clipboard,
 )
 from .base import Capture
 
@@ -123,6 +125,71 @@ class GenericAdapter:
 
         return None
 
+    def _read_valor_entero(self, ctx) -> Capture | None:
+        """
+        Ultimo recurso: el VALOR COMPLETO del control.
+
+        Se llega aqui solo cuando fallaron los dos caminos precisos, y hay
+        frameworks donde es la unica opcion:
+
+        - Flutter (Flet) dibuja el texto el mismo, no expone TextPattern y
+          tampoco responde al Ctrl+C sintetico, asi que no hay forma de saber
+          que selecciono el usuario.
+        - Algunos controles de Chromium en paginas con frameworks pesados.
+
+        El precio es que se corrige y se reescribe el campo ENTERO. No se pierde
+        texto (todo el contenido se conserva y se corrige), pero si el usuario
+        habia seleccionado solo una parte, esa intencion se ignora. Por eso va
+        al final de la cadena y no antes del portapapeles: en el Bloc de notas,
+        por ejemplo, el portapapeles si funciona y respeta la seleccion parcial.
+
+        Y solo se usa si el control NO expone TextPattern Y la app nunca ha
+        respondido a un Ctrl+C sintetico. Si expone TextPattern y dice que no
+        hay nada seleccionado, es que el usuario no selecciono nada y hay que
+        respetarlo; si la app ya demostro que copia, tambien sabemos que un
+        fallo significa "no hay seleccion". Sin esas dos condiciones, apretar el
+        atajo con solo el cursor reescribiria el documento entero.
+        """
+        ctrl = self._focused()
+        if ctrl is None:
+            return None
+
+        if ctrl.GetPattern(auto.PatternId.TextPattern) is not None:
+            # La app SABI decirnos la seleccion y dijo que no hay ninguna.
+            return None
+
+        if clipboard_soportado(ctx.process):
+            # Ya sabemos que esta app copia con Ctrl+C: si no salio nada, es
+            # que el usuario no tiene nada seleccionado.
+            return None
+
+        patron = ctrl.GetPattern(auto.PatternId.ValuePattern)
+        if patron is None:
+            return None
+
+        try:
+            if patron.IsReadOnly:
+                return None
+
+            valor = patron.Value or ""
+            if not valor.strip():
+                return None
+
+            if "\n" in valor or "\r" in valor:
+                # Campo de varias lineas: SetValue podria aplanarlo y perder
+                # los saltos. No se arriesga.
+                log.info("campo multilinea: se omite la correccion del campo entero")
+                return None
+
+            log.info(
+                "sin seleccion detectable: se corrige el campo entero (%d caracteres)",
+                len(valor),
+            )
+            return Capture(text=valor, meta={"via": "uia-value"})
+        except Exception as exc:
+            log.debug("uia ValuePattern fallo: %s", exc)
+            return None
+
     # --- Ciclo --------------------------------------------------------------
 
     def read(self, ctx) -> Capture | None:
@@ -133,6 +200,10 @@ class GenericAdapter:
         log.debug("sin seleccion via UIA: se usa el portapapeles")
         previo = clipboard_read()
         text = clipboard_copy_from_app(self.clipboard_timeout_ms)
+        # Si la app respondio con algo, queda registrada como "copia bien".
+        # Sirve para no confundir despues "no hay seleccion" con "no entiende
+        # Ctrl+C", que en Flutter/Flet son indistinguibles a simple vista.
+        marcar_clipboard(ctx.process, bool(text))
 
         if not text or not text.strip():
             # Puede que el Ctrl+C haya copiado algo (por ejemplo solo espacios)
@@ -141,11 +212,26 @@ class GenericAdapter:
             # a release(), asi que se restaura aqui.
             if text is not None and previo is not None:
                 clipboard_write(previo)
-            return None
+
+            # Ultimo recurso: controles donde no hay ninguna forma de saber la
+            # seleccion (Flutter/Flet entre otros). Corrige el campo entero.
+            return self._read_valor_entero(ctx)
 
         return Capture(text=text, meta={"via": "clipboard", "clipboard_previo": previo})
 
     def write(self, ctx, capture: Capture, text: str) -> None:
+        if capture.meta.get("via") == "uia-value":
+            # Campo entero: se escribe entero, que es lo que se leyo.
+            ctrl = self._focused()
+            if ctrl is None:
+                raise RuntimeError("el control enfocado se perdio antes de escribir")
+            patron = ctrl.GetPattern(auto.PatternId.ValuePattern)
+            if patron is None or patron.IsReadOnly:
+                raise RuntimeError("el control ya no acepta escritura")
+            patron.SetValue(text)
+            log.debug("escrito el campo completo via ValuePattern")
+            return
+
         # Si la lectura fue por UIA, el portapapeles todavia es del usuario y
         # hay que acordarse de su valor ANTES de que el pegado lo pise.
         if capture.meta.get("clipboard_para_restaurar") is None:
@@ -155,8 +241,6 @@ class GenericAdapter:
             capture.meta["clipboard_para_restaurar"] = previo
 
         # El pegado respeta la seleccion, que es justo lo que queremos.
-        # ValuePattern/SetValue se descartan a proposito: reemplazarian el
-        # control entero. La restauracion la hace release().
         if not clipboard_paste_into_app(text):
             raise RuntimeError("no se pudo escribir en el portapapeles")
         time.sleep(self.paste_settle_ms / 1000.0)

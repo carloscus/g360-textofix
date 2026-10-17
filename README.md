@@ -57,6 +57,7 @@ ejecutar.
 | Bloc de notas (Windows 11) | ✅ | ✅ | Solo expone `ValuePattern`, va por portapapeles |
 | Chrome: `<textarea>` | ✅ | ✅ | Lee por `TextPattern`, sin pasar por portapapeles |
 | Chrome: `contenteditable` | ✅ | ✅ | Ídem |
+| **Flet / Flutter (campos)** | ✅ lectura | ⚠️ campo entero | No expone selección ni acepta `Ctrl+C` sintético |
 | Word | ✅ COM | ✅ | Conserva párrafos y formato; no duplica párrafos |
 | Excel | ✅ COM | ✅ | Solo celdas de texto; fórmulas y números intactos |
 
@@ -142,25 +143,46 @@ distinta. Los adaptadores se consultan en orden de prioridad.
 ```
                     ┌─ winword.exe  → COM, lee Selection.Range
 Atajo ──→ detectar ─┼─ excel.exe    → COM, lee ActiveCell
-                    └─ resto        → UIA (TextPattern) → portapapeles
+                    └─ resto        → UIA → portapapeles → campo entero
 ```
 
 | Adaptador | Cuándo | Cómo lee |
 |---|---|---|
 | `word` | `winword.exe` | COM `Selection.Range` |
 | `excel` | `excel.exe` | COM `ActiveCell` |
-| `generic` | todo lo demás | UIA y, si no alcanza, portapapeles |
+| `generic` | todo lo demás | UIA → portapapeles → campo entero |
 
-**Por qué el portapapeles sigue en el camino genérico.** UI Automation tiene
-dos patrones y no sirven para lo mismo:
+### El camino "campo entero" y cuándo se activa
+
+UI Automation tiene dos patrones y no sirven para lo mismo:
 
 - `TextPattern.GetSelection()` devuelve el texto **realmente resaltado**.
 - `ValuePattern` devuelve el valor **completo** del control.
 
 El Bloc de notas de Windows 11 expone `ValuePattern` y **no** `TextPattern`.
 Leer con `ValuePattern` y reescribir con `SetValue()` borraría todo lo que el
-usuario no había seleccionado. Por eso, cuando UIA no expone la selección, se
-va al portapapeles: el pegado sí respeta lo resaltado.
+usuario no había seleccionado.
+
+Por eso el orden va de lo preciso a lo aproximado, y el valor completo queda
+**solo como último recurso**, y únicamente si se cumplen **las dos** condiciones:
+
+1. El control **no** expone `TextPattern`.
+2. Esa aplicación **nunca** ha respondido a un `Ctrl+C` sintético.
+
+La segunda condición existe por apps como **Flutter (Flet)**: dibujan el texto
+ellos mismos, no exponen `TextPattern` y no responden al `Ctrl+C` sintético (ni
+siquiera con un clic real). Ahí "no se copió nada" es ambiguo: puede ser que no
+tengas nada seleccionado o que la app ni entienda el atajo. El corrector recuerda
+qué apps han copiado alguna vez y solo usa este camino en las que nunca lo han
+hecho.
+
+**El precio, dicho claro:** en esas apps se corrige y se reescribe el **campo
+entero**. No se pierde texto (todo el contenido se conserva y se corrige), pero
+si habías seleccionado solo una parte, esa intención se ignora. Además los
+campos de **varias líneas se rechazan**: `SetValue()` podría aplanarlos.
+
+**En esos casos el log lo dice**: `sin seleccion detectable: se corrige el campo
+entero (N caracteres)`.
 
 ---
 
@@ -258,6 +280,7 @@ uv run python tests/smoke_win32_edit.py    # selección completa, parcial, al fi
 uv run python tests/smoke_hilo.py          # el ciclo completo desde un hilo de trabajo
 uv run python tests/smoke_hotkey.py        # atajo global, sin ráfaga, cierre limpio
 uv run python tests/smoke_privacidad.py    # logs sin texto, portapapeles intacto
+uv run python tests/smoke_campo_entero.py  # el ultimo recurso y su guarda multilínea
 uv run python tests/smoke_notepad.py       # Bloc de notas
 uv run python tests/smoke_navegador.py     # Chrome: textarea y contenteditable
 uv run python tests/smoke_office.py        # Word y Excel
