@@ -8,8 +8,11 @@ dependencies = [
     "pywin32>=312",
 ]
 
-# Etapa 2 (Gemini) queda fuera de forma deliberada: la API key y la
-# facturacion se configuran despues. Ver README > Etapa 2.
+[project.optional-dependencies]
+# La IA es OPCIONAL: sin esta extra el corrector funciona igual (Etapa 1).
+# Se instala con: uv sync --extra ai
+ai = ["google-genai>=2.31.0"]
+
 [dependency-groups]
 dev = ["pytest>=8.0"]
 

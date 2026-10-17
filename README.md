@@ -113,8 +113,10 @@ uv run python src/main.py
 | Comando | Qué hace |
 |---|---|
 | `uv run python src/main.py` | Escucha el atajo `Ctrl+Shift+E` |
+| `uv run python src/main.py --modo ia` | Igual, pero **corrige de verdad** con Gemini |
 | `uv run python src/main.py --once` | Una corrección sobre lo seleccionado y sale |
 | `uv run python src/main.py --once --mock-transform wrap` | Envuelve el texto en `«»` para ver dónde se escribió |
+| `uv run python src/main.py --bateria` | Mide el prompt contra la batería de frases, sin escribir nada |
 | `uv run python src/main.py --diagnostico` | Informa qué ventana está en primer plano y qué adaptador usaría |
 | `uv run python src/main.py -v` | Detalle en consola |
 
@@ -280,17 +282,51 @@ es peor que fallar.
 
 ## Etapa 2: corrección con Gemini
 
-Pendiente. Requiere dos cosas:
+Activa la corrección real. Requiere:
 
-1. **Facturación activada** en el proyecto de Google AI Studio.
-2. La clave en `GEMINI_API_KEY` dentro de `.env`.
+1. **Facturación activada** en tu proyecto de Google AI Studio.
+2. Copiar `.env.example` a `.env` y pegar tu `GEMINI_API_KEY`.
+3. `uv sync --extra ai`.
 
-> **Por qué hace falta la facturación.** Los
-> [términos de Gemini API](https://ai.google.dev/gemini-api/terms) dicen que en
-> la cuota **gratuita** Google usa los textos enviados para mejorar sus
-> productos y que **revisores humanos pueden leerlos**. En la cuota **de pago**
-> no se usan para entrenar. Como el corrector se usa sobre correo, documentos y
-> sistemas empresariales, corresponde la cuota de pago.
+`iniciar.bat` detecta el `.env` y arranca solo en modo IA. Sin `.env`, arranca
+en modo demo como hasta ahora.
+
+### ⚠️ Por qué hace falta la facturación
+
+Los [términos de Gemini API](https://ai.google.dev/gemini-api/terms) dicen que en
+la cuota **gratuita** Google usa los textos enviados para mejorar sus productos
+y que **revisores humanos pueden leerlos**. En la cuota **de pago** no se usan
+para entrenar. Como el corrector se usa sobre correo, documentos y sistemas
+empresariales, corresponde la cuota de pago.
+
+### El prompt es conservador a propósito
+
+Un corrector que reescribe es peor que uno que no corrige, porque el usuario
+tiene que revisar cada cambio. El prompt pide explícitamente que **no** se
+reformule, **no** se invente nada y que se respeten URLs, correos, SKU, rutas y
+saltos de línea. Los ejemplos van en ambos sentidos: qué corregir y qué no.
+
+Después del modelo, `guards.py` sigue haciendo su trabajo: si la respuesta
+ came vacía, trae preámbulo, cambia las cifras o crece desmedidamente, **no se
+escribe nada**.
+
+### Medir el prompt antes de confiar en él
+
+```powershell
+uv run python src/main.py --bateria
+```
+
+Corre la batería de frases contra el modelo real **sin tocar ninguna pantalla**,
+y muestra el antes y el después de cada una, cuántos coinciden exactamente y
+cuántas rechazaron las guardas. También podés filtrar:
+
+```powershell
+uv run python src/main.py --bateria tilde
+```
+
+Las frases con `solo_puntuar` están ya bien escritas: si el modelo las cambia,
+la batería lo marca como `TOCO UN TEXTO QUE YA ESTA BIEN`. Eso es una señal de
+que el prompt se está saliendo del papel.
 
 ---
 

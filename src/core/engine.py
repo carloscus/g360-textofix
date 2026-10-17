@@ -81,11 +81,25 @@ def mock_correct(text: str, transform: str) -> str:
     return text
 
 
-def correct(text: str, mode: str, transform: str) -> str:
-    """Punto deextension para la Etapa 2 (Gemini)."""
+def correct(text: str, mode: str, transform: str) -> str | None:
+    """
+    Produce la version corregida del texto.
+
+    En modo `mock` no hay IA: devuelve el texto igual (o entrecomillado con
+    `wrap`), que es lo que permite validar la mecanica sin gastar API.
+
+    En modo `ia` llama a Gemini. Si algo falla devuelve None y el llamador
+    conserva el original: fallar es siempre preferible a escribir cualquier cosa.
+    """
     if mode == "mock":
         return mock_correct(text, transform)
-    raise NotImplementedError("la correccion con IA llega en la Etapa 2; usar --mock en la Etapa 1")
+
+    if mode == "ia":
+        from .ai import CorrectorIA
+
+        return CorrectorIA().corregir(text)
+
+    raise NotImplementedError(f"modo de correccion desconocido: {mode}")
 
 
 # --- Ciclo -------------------------------------------------------------------
@@ -155,9 +169,16 @@ def _corregir_y_escribir(adapter, ctx, cfg, capture, mode, transform) -> Outcome
         feedback.error()
         return Outcome(False, "sin-modo-de-correccion", adapter=adapter.name)
     except Exception as exc:
-        log.warning("fallo corrigiendo: %s", exc)
+        # Falta la clave, se agoto la cuota, fallo la red: cualquier cosa.
+        # El original se conserva intacto.
+        log.warning("la correccion fallo: %s", exc)
         feedback.error()
         return Outcome(False, "fallo-correccion", adapter=adapter.name)
+
+    if candidate is None:
+        log.warning("la IA no devolvio texto")
+        feedback.error()
+        return Outcome(False, "sin-respuesta-ia", adapter=adapter.name)
 
     verdict: Verdict = validate(original, candidate)
     log.debug("validacion: %s", verdict.reason)

@@ -27,9 +27,16 @@ if errorlevel 1 (
 echo [G360] Iniciando corrector. Atajo: Ctrl+Shift+E
 echo [G360] Ctrl+C para salir.
 echo.
-echo [G360] ETAPA 1: todavia NO corrige. Usa --mock-transform wrap para que
-echo [G360] veas el texto encerrado en comillas y confirmes que funciona.
-echo.
 
-uv run python src\main.py --mock-transform wrap %*
+if exist ".env" (
+    echo [G360] Modo IA: corrige de verdad con Gemini.
+    uv sync --extra ai --quiet
+    uv run python src\main.py --modo ia %*
+) else (
+    echo [G360] ETAPA 1: todavia NO corrige. Falta el archivo .env con la clave.
+    echo [G360] Copia .env.example a .env, pega tu GEMINI_API_KEY y vuelve a ejecutar.
+    echo [G360] Mientras tanto, modo demo: el texto se devuelve entre comillas.
+    echo.
+    uv run python src\main.py --mock-transform wrap %*
+)
 if errorlevel 1 pause

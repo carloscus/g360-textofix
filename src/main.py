@@ -17,9 +17,18 @@ from __future__ import annotations
 import argparse
 import ctypes
 import sys
+from pathlib import Path
 
 from core import feedback
-from core.config import MOD_CONTROL, MOD_NOREPEAT, MOD_SHIFT, VK_E, Config, Hotkey
+from core.config import (
+    MOD_CONTROL,
+    MOD_NOREPEAT,
+    MOD_SHIFT,
+    VK_E,
+    Config,
+    Hotkey,
+    cargar_dotenv,
+)
 from core.engine import detect_context, run_once
 from core.hotkey import HotkeyListener
 from core.logsetup import setup_logging
@@ -27,8 +36,9 @@ from core.logsetup import setup_logging
 VERSION = "1.0.0"
 APP_NAME = "g360-textofix"
 
-# En la Etapa 1 el unico modo de correccion es el simulado.
-MODO_ETAPA_1 = "mock"
+# Modos de correccion: `mock` no usa IA, `ia` llama a Gemini.
+MODO_MOCK = "mock"
+MODO_IA = "ia"
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -42,6 +52,25 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--once",
         action="store_true",
         help="Ejecuta una correccion sobre la seleccion actual y sale.",
+    )
+    parser.add_argument(
+        "--modo",
+        choices=("mock", "ia"),
+        default="mock",
+        help=(
+            "mock: no usa IA, devuelve el texto igual (para probar la mecanica). "
+            "ia: corrige de verdad con Gemini (Etapa 2)."
+        ),
+    )
+    parser.add_argument(
+        "--bateria",
+        action="store_true",
+        help="Corrige la bateria de frases de prueba y muestra el resultado, sin escribir nada.",
+    )
+    parser.add_argument(
+        "--filtro",
+        default="",
+        help="Con --bateria, corre solo los casos cuyo nombre contenga este texto.",
     )
     parser.add_argument(
         "--mock-transform",
@@ -87,19 +116,37 @@ def _install_console_handler(listener: HotkeyListener) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
+    cargar_dotenv()
     cfg = Config.from_env()
     log = setup_logging(verbose=args.verbose or cfg.verbose)
 
     if args.sin_sonido:
         feedback.set_muted(True)
 
+    if args.bateria:
+        cargar_dotenv()
+        sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "tests"))
+        from core.bateria import ejecutar
+
+        return ejecutar(args.filtro)
+
     if args.diagnostico:
         log.info("diagnostico: ventana activa en primer plano")
         detect_context()
         return 0
 
+    modo = args.modo
+
+    if modo == MODO_IA:
+        from core.ai import CorrectorIA
+
+        listo, motivo = CorrectorIA().disponible()
+        if not listo:
+            log.error("modo IA no disponible: %s", motivo)
+            return 3
+
     if args.once:
-        outcome = run_once(cfg, mode=MODO_ETAPA_1, transform=args.mock_transform)
+        outcome = run_once(cfg, mode=modo, transform=args.mock_transform)
         log.info("resultado=%s adaptador=%s", outcome.reason, outcome.adapter or "-")
         return 0 if outcome.ok else 1
 
@@ -117,22 +164,24 @@ def main(argv: list[str] | None = None) -> int:
 
     log.info("%s v%s escuchando %s (Ctrl+C para salir)", APP_NAME, VERSION, hotkey.label)
 
-    # Etapa 1 no corrige con IA: devuelve el texto IGUAL. Sin este aviso parece
-    # que no hace nada, cuando en realidad esta funcionando.
-    if args.mock_transform == "wrap":
+    # Aviso honesto sobre que se esta haciendo: en modo mock el texto vuelve
+    # igual y no se ve nada, lo que parece un fallo pero no lo es.
+    if modo == MODO_IA:
+        log.info("MODO IA: se corrige con Gemini. Cada correccion consume cuota.")
+    elif args.mock_transform == "wrap":
         log.info(
             "MODO DEMO: el texto se devuelve entre comillas angulares, para que "
-            "veas donde se escribio. Aun no corrige (eso es la Etapa 2)."
+            "veas donde se escribio. No se corrige todavia."
         )
     else:
         log.warning(
             "MODO SIMULADO: el texto se devuelve SIN corregir, asi que no se ve "
-            "ningun cambio. Para comprobar que funciona, agrega: "
-            "--mock-transform wrap"
+            "ningun cambio. Para comprobar que funciona: --mock-transform wrap. "
+            "Para corregir de verdad: --modo ia"
         )
 
     try:
-        listener.start(lambda: run_once(cfg, mode=MODO_ETAPA_1, transform=args.mock_transform))
+        listener.start(lambda: run_once(cfg, mode=modo, transform=args.mock_transform))
     except OSError as exc:
         log.error("%s", exc)
         return 2
