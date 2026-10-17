@@ -17,7 +17,6 @@ from __future__ import annotations
 import argparse
 import ctypes
 import sys
-from pathlib import Path
 
 from core import feedback
 from core.config import (
@@ -134,7 +133,6 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.bateria:
         cargar_dotenv()
-        sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "tests"))
         from core.bateria import ejecutar
 
         return ejecutar(args.filtro, args.pausa)

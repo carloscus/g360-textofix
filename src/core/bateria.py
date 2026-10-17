@@ -33,8 +33,9 @@ def _sin_cierre(texto: str) -> str:
 
 
 def casos_disponibles():
-    """Los casos de `tests/test_frases.py`, sin importar un modulo de tests."""
-    from test_frases import TODOS
+    """Los casos de la bateria. Viven en core, no en tests, para que el .exe
+    los tenga disponibles."""
+    from .casos import TODOS
 
     return TODOS
 

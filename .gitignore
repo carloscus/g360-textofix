@@ -12,6 +12,10 @@ build/
 .ruff_cache/
 .mypy_cache/
 
+# Empaquetado con PyInstaller
+dist/
+build/
+
 # Configuracion local: la clave de API NUNCA se commitea
 .env
 .env.local
