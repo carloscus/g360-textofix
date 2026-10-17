@@ -67,13 +67,6 @@ class GenericAdapter:
     def matches(self, ctx) -> bool:
         return ctx.process.lower() not in _EXCLUIDOS
 
-    def matches_focus(self) -> bool:
-        """True si la ventana enfocada admite lectura por UIA."""
-        try:
-            return self._focused() is not None
-        except Exception:
-            return False
-
     # --- UIA (solo lectura) -------------------------------------------------
 
     def _focused(self):
@@ -136,8 +129,16 @@ class GenericAdapter:
         log.debug("sin seleccion via UIA: se usa el portapapeles")
         previo = clipboard_read()
         text = clipboard_copy_from_app(self.clipboard_timeout_ms)
+
         if not text or not text.strip():
+            # Puede que el Ctrl+C haya copiado algo (por ejemplo solo espacios)
+            # y por eso no haya nada utilizable. En ese caso el portapapeles
+            # quedo modificado y `run_once` va a retornar antes de poder llamar
+            # a release(), asi que se restaura aqui.
+            if text is not None and previo is not None:
+                clipboard_write(previo)
             return None
+
         return Capture(text=text, meta={"via": "clipboard", "clipboard_previo": previo})
 
     def write(self, ctx, capture: Capture, text: str) -> None:

@@ -31,10 +31,6 @@ class Outcome:
     adapter: str = ""
     chars: int = 0
 
-    @property
-    def should_write(self) -> bool:
-        return self.ok and self.reason == "escrito"
-
 
 # --- Corrector ---------------------------------------------------------------
 # Etapa 1: no hay IA. El modo simulado devuelve el texto para comprobar que
