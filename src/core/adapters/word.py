@@ -60,3 +60,7 @@ class WordAdapter:
 
         rng.Text = text
         log.debug("word: escritura aplicada")
+
+    def release(self, capture: Capture) -> None:
+        """Word se lee y escribe por COM: el portapapeles no interviene."""
+        return

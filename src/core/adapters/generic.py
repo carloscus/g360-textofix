@@ -102,9 +102,24 @@ class GenericAdapter:
             if not pattern.SupportedTextSelection:
                 log.debug("TextPattern sin soporte de seleccion")
                 return None
-            sel = pattern.GetSelection()
-            text = sel.Text if sel else ""
-            if text and text.strip():
+
+            seleccion = pattern.GetSelection()
+            # GetSelection devuelve una LISTA de TextRange (puede haber mas de
+            # una seleccion). Y el rango no expone `.Text`: hay que pedirlo
+            # con GetText(-1), que "-1" significa "hasta el final".
+            rangos = seleccion if isinstance(seleccion, (list, tuple)) else [seleccion]
+
+            partes = []
+            for rango in rangos:
+                if rango is None:
+                    continue
+                if hasattr(rango, "Text"):
+                    partes.append(rango.Text or "")
+                else:
+                    partes.append(rango.GetText(-1) or "")
+            text = "".join(partes)
+
+            if text.strip():
                 return Capture(text=text, meta={"via": "uia-text"})
         except Exception as exc:
             log.debug("uia TextPattern fallo: %s", exc)
@@ -126,15 +141,33 @@ class GenericAdapter:
         return Capture(text=text, meta={"via": "clipboard", "clipboard_previo": previo})
 
     def write(self, ctx, capture: Capture, text: str) -> None:
-        # El pegado respeta la seleccion, que es justo lo que queremos. UValue
-        # / SetValue se descartan a proposito: reemplazarian el control entero.
-        previo = capture.meta.get("clipboard_previo")
-        if previo is None:
-            previo = clipboard_read()
+        # Si la lectura fue por UIA, el portapapeles todavia es del usuario y
+        # hay que acordarse de su valor ANTES de que el pegado lo pise.
+        if capture.meta.get("clipboard_para_restaurar") is None:
+            previo = capture.meta.get("clipboard_previo")
+            if previo is None:
+                previo = clipboard_read()
+            capture.meta["clipboard_para_restaurar"] = previo
 
+        # El pegado respeta la seleccion, que es justo lo que queremos.
+        # ValuePattern/SetValue se descartan a proposito: reemplazarian el
+        # control entero. La restauracion la hace release().
         if not clipboard_paste_into_app(text):
             raise RuntimeError("no se pudo escribir en el portapapeles")
         time.sleep(self.paste_settle_ms / 1000.0)
 
-        if previo is not None:
-            clipboard_write(previo)
+    def release(self, capture: Capture) -> None:
+        """
+        Devuelve el portapapeles a lo que habia antes de que pasaramos por el.
+
+        Importa igual que se haya escrito o no: leer la seleccion de muchas apps
+        exige copiarla, y si despues la correccion se rechaza, el usuario se
+        queda con su portapapeles cambiado sin haberlo pedido.
+        """
+        previo = capture.meta.get("clipboard_previo")
+        if previo is None:
+            previo = capture.meta.get("clipboard_para_restaurar")
+        if previo is None:
+            return
+        clipboard_write(previo)
+        log.debug("portapapeles restaurado")

@@ -59,9 +59,7 @@ def correct(text: str, mode: str, transform: str) -> str:
     """Punto deextension para la Etapa 2 (Gemini)."""
     if mode == "mock":
         return mock_correct(text, transform)
-    raise NotImplementedError(
-        "la correccion con IA llega en la Etapa 2; usar --mock en la Etapa 1"
-    )
+    raise NotImplementedError("la correccion con IA llega en la Etapa 2; usar --mock en la Etapa 1")
 
 
 # --- Ciclo -------------------------------------------------------------------
@@ -105,6 +103,21 @@ def run_once(cfg: Config, mode: str = "mock", transform: str = "roundtrip") -> O
     log.debug("leido via %s: %s", adapter.name, describe(original))
 
     try:
+        return _corregir_y_escribir(adapter, ctx, cfg, capture, mode, transform)
+    finally:
+        # Siempre, se haya escrito o no: deja el portapapeles como estaba.
+        # Si la correccion se rechaza, el usuario no debe quedarse con su
+        # portapapeles cambiado por nuestra cuenta.
+        try:
+            adapter.release(capture)
+        except Exception as exc:
+            log.debug("release fallo en %s: %s", adapter.name, exc)
+
+
+def _corregir_y_escribir(adapter, ctx, cfg, capture, mode, transform) -> Outcome:
+    """Corrige, valida y, si todo cuadra, reemplaza. Ver `run_once`."""
+    original = capture.text
+    try:
         candidate = correct(original, mode, transform)
     except NotImplementedError:
         feedback.error()
@@ -131,9 +144,7 @@ def run_once(cfg: Config, mode: str = "mock", transform: str = "roundtrip") -> O
     except Exception as exc:
         log.warning("fallo escribiendo con %s: %s", adapter.name, exc)
         feedback.error()
-        return Outcome(
-            False, "fallo-escritura", adapter=adapter.name, chars=len(original)
-        )
+        return Outcome(False, "fallo-escritura", adapter=adapter.name, chars=len(original))
 
     feedback.ok()
     log.info(

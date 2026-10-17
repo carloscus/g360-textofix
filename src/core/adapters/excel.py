@@ -98,3 +98,7 @@ class ExcelAdapter:
         # sigue siendo texto, asi que no se pierde maquetacion.
         cell.Value = text
         log.debug("excel: escritura aplicada")
+
+    def release(self, capture: Capture) -> None:
+        """Excel se lee y escribe por COM: el portapapeles no interviene."""
+        return

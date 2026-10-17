@@ -46,23 +46,35 @@ pendiente de configurar la facturación.
 
 ## Qué funciona hoy
 
-Verificado contra aplicaciones reales en esta máquina:
+Verificado con pruebas de humo automatizadas contra aplicaciones reales en esta
+máquina. Cada línea corresponde a un `tests/smoke_*.py` que se puede volver a
+ejecutar.
 
 | Aplicación | Captura | Reemplazo | Notas |
 |---|---|---|---|
+| Control EDIT de Win32 | ✅ | ✅ | Selección completa, parcial, al final y sin selección |
 | Bloc de notas (Windows 11) | ✅ | ✅ | Solo expone `ValuePattern`, va por portapapeles |
-| Word | ✅ COM | ✅ | Conserva párrafos y formato |
-| Excel | ✅ COM | ✅ | Solo celdas de texto; fórmulas y números quedan intactos |
-| Cualquier control EDIT de Win32 | ✅ | ✅ | Base de muchas aplicaciones |
+| Chrome: `<textarea>` | ✅ | ✅ | Lee por `TextPattern`, sin pasar por portapapeles |
+| Chrome: `contenteditable` | ✅ | ✅ | Ídem |
+| Word | ✅ COM | ✅ | Conserva párrafos y formato; no duplica párrafos |
+| Excel | ✅ COM | ✅ | Solo celdas de texto; fórmulas y números intactos |
 
-Lo que **no** está resuelto todavía:
+### Lo que NO está verificado
 
-- **WordPad y apps con diseño propio**: sin verificar.
-- **Consolas y terminales**: sin verificar.
-- **Aplicaciones que corren como administrador**: el corrector detecta el
-  bloqueo (UIPI) y avisa con tono grave en lugar de fallar en silencio, pero no
-  puede corregirlas. Hay que ejecutar el corrector elevated.
-- **Bandeja del sistema**: es la Etapa 3.
+Se dice explícitamente para no dar por bueno lo que no se probó:
+
+| Sin verificar | Por qué |
+|---|---|
+| **Outlook / correo** | La prueba automatizada escribiría en tu buzón real. La ruta técnica es la misma que el navegador (UIA → portapapeles), pero **no está confirmada**. Probalo a mano antes de confiar en él. |
+| **ERP (Centura)** | No se automatizó por riesgo de tocar datos reales de negocio. Además suele **correrse como administrador**: si es el caso, el corrector detecta el bloqueo (UIPI) y avisa con tono grave, pero no puede corregirlo. Habría que lanzarlo elevated. |
+| **Other navegadores** | Solo Chrome. Brave, Firefox y Edge comparten tecnología pero no se probaron. |
+| **Consolas / terminal** | Sin verificar. |
+| **WordPad, apps con diseño propio** | Sin verificar. |
+| **Aplicaciones con contraseña o campos restringidos** | Sin verificar. |
+| **Escritorio remoto** | Sin verificar. |
+
+**Prueba rápida:** `uv run python src/main.py --diagnostico` dice qué ventana ve el
+corrector, qué adaptador usaría y si está bloqueado por permisos.
 
 ---
 
@@ -180,7 +192,10 @@ respuesta si:
 
 - **No hay historial**: no se guarda ninguna corrección.
 - **Los logs no contienen texto**: solo longitud y un hash (`len=42 sha=3f9a1c2b`).
-- **El portapapeles se restaura** después de pegar.
+- **El portapapeles se restaura siempre**, haya escrito o no. Leer la selección de
+  muchas apps exige copiarla, así que si la corrección se rechaza el portapapeles
+  del usuario también queda como estaba.
+- **No se crea ningún archivo de log**: todo va a consola.
 
 ---
 
@@ -229,9 +244,6 @@ g360-textofix/
     └── smoke_*.py              # pruebas de humo reales
 ```
 
-`guards.py` no importa nada de Windows: es lo que permite testear la parte
-crítica sin montar interfaces.
-
 ---
 
 ## Testing
@@ -240,15 +252,21 @@ crítica sin montar interfaces.
 :: Tests unitarios (rápidos, sin Windows)
 uv run pytest
 
-:: Pruebas de humo (abren ventanas reales)
-uv run python tests/smoke_win32_edit.py    # selección completa, parcial, sin selección
+:: Pruebas de humo (abren ventanas reales y escriben en apps de verdad)
+uv run python tests/smoke_win32_edit.py    # selección completa, parcial, al final, sin selección
 uv run python tests/smoke_hotkey.py        # atajo global, sin ráfaga, cierre limpio
-uv run python tests/smoke_notepad.py       # aplicación real
+uv run python tests/smoke_privacidad.py    # logs sin texto, portapapeles intacto
+uv run python tests/smoke_notepad.py       # Bloc de notas
+uv run python tests/smoke_navegador.py     # Chrome: textarea y contenteditable
 uv run python tests/smoke_office.py        # Word y Excel
 ```
 
 Las pruebas de humo no las corre `pytest`: abren ventanas y escriben en
-aplicaciones de verdad, así que se lanzan a mano.
+aplicaciones de verdad, así que se lanzan a mano. Todas terminan con `exit 0` si
+pasan.
+
+`smoke_navegador.py` abre Chrome con un perfil aislado en una carpeta temporal, así
+que no toca tu perfil real ni otros navegadores abiertos.
 
 ---
 

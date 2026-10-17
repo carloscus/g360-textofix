@@ -44,3 +44,13 @@ class Adapter(Protocol):
     def write(self, ctx: WindowContext, capture: Capture, text: str) -> None:
         """Reemplaza la seleccion original por `text`. Lanza si no puede."""
         ...
+
+    def release(self, capture: Capture) -> None:
+        """
+        Restaura lo que el adaptador haya tenido que alterar.
+
+        Se llama SIEMPRE, se haya escrito o no. El caso que importa: si la
+        correccion se rechaza, el portapapeles del usuario tiene que quedar
+        igual, no con el texto que se copio para poder leerlo.
+        """
+        ...
