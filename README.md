@@ -53,6 +53,7 @@ ejecutar.
 | Aplicación | Captura | Reemplazo | Notas |
 |---|---|---|---|
 | Control EDIT de Win32 | ✅ | ✅ | Selección completa, parcial, al final y sin selección |
+| Ejecución desde un hilo de trabajo | ✅ | ✅ | Es el camino real del atajo global; exige COM inicializado por hilo |
 | Bloc de notas (Windows 11) | ✅ | ✅ | Solo expone `ValuePattern`, va por portapapeles |
 | Chrome: `<textarea>` | ✅ | ✅ | Lee por `TextPattern`, sin pasar por portapapeles |
 | Chrome: `contenteditable` | ✅ | ✅ | Ídem |
@@ -254,6 +255,7 @@ uv run pytest
 
 :: Pruebas de humo (abren ventanas reales y escriben en apps de verdad)
 uv run python tests/smoke_win32_edit.py    # selección completa, parcial, al final, sin selección
+uv run python tests/smoke_hilo.py          # el ciclo completo desde un hilo de trabajo
 uv run python tests/smoke_hotkey.py        # atajo global, sin ráfaga, cierre limpio
 uv run python tests/smoke_privacidad.py    # logs sin texto, portapapeles intacto
 uv run python tests/smoke_notepad.py       # Bloc de notas

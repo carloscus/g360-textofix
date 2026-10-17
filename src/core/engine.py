@@ -9,6 +9,7 @@ se avisa con un tono de error. Nunca se escribe una respuesta sin validar.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 from dataclasses import dataclass
 
@@ -20,6 +21,35 @@ from .logsetup import LOGGER_NAME, describe
 from .winapi import WindowContext, foreground_context, puede_inyectar
 
 log = logging.getLogger(LOGGER_NAME)
+
+
+@contextlib.contextmanager
+def com_inicializado():
+    """
+    Prepara COM en el hilo actual para que UI Automation funcione.
+
+    UI Automation es COM, y COM hay que inicializarlo POR HILO. El atajo
+    dispara la correccion en un hilo de trabajo precisamente para no congelar
+    el bucle de mensajes, asi que sin esto UIA falla con
+    "CoInitialize has not been called" y el corrector se queda sin poder leer
+    la seleccion.
+
+    En el hilo principal no hace falta, pero inicializarlo ahi es inofensivo.
+    """
+    try:
+        import uiautomation as auto
+    except ImportError:  # pragma: no cover
+        yield
+        return
+
+    try:
+        with auto.UIAutomationInitializerInThread():
+            yield
+    except OSError as exc:  # pragma: no cover
+        # Sin COM no hay UIA, pero el adaptador generico todavia puede
+        # funcionar por portapapeles. Se sigue, no se aborta.
+        log.debug("COM no disponible, se sigue por portapapeles: %s", exc)
+        yield
 
 
 @dataclass(frozen=True)
@@ -63,6 +93,12 @@ def correct(text: str, mode: str, transform: str) -> str:
 
 def run_once(cfg: Config, mode: str = "mock", transform: str = "roundtrip") -> Outcome:
     """Ejecuta una correccion sobre lo que este seleccionado en pantalla."""
+    with com_inicializado():
+        return _ciclo(cfg, mode, transform)
+
+
+def _ciclo(cfg: Config, mode: str, transform: str) -> Outcome:
+    """El ciclo de la correccion. Ver `run_once`."""
     ctx = foreground_context()
     if ctx is None:
         feedback.error()

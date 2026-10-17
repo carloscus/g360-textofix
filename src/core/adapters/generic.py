@@ -72,7 +72,11 @@ class GenericAdapter:
     def _focused(self):
         try:
             return auto.GetFocusedControl()
-        except Exception:
+        except Exception as exc:
+            # Fallo tipico: COM sin inicializar en este hilo. No se propaga
+            # porque el portapapeles todavia puede funcionar, pero conviene
+            # que se vea en vez de degradar en silencio.
+            log.warning("UIA no disponible en este hilo: %s", exc)
             return None
 
     def _read_uia(self) -> Capture | None:

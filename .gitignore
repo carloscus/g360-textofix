@@ -28,3 +28,6 @@ build/
 Thumbs.db
 desktop.ini
 .DS_Store
+
+# Artefacto que deja pywin32 al automatizar Office (COM)
+@AutomationLog.txt
