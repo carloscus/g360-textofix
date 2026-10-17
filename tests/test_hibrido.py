@@ -13,7 +13,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-import core.ai as ai_mod
+import core.proovedor as prov_mod
 from core import engine
 from core.engine import _reintentar_por_nube, _usaba_local
 
@@ -77,13 +77,15 @@ def test_nube_que_confia_escribe(monkeypatch):
     """La nube devuelve un texto que pasa las guardas: se escribe."""
 
     class _NubeOK:
-        def __init__(self, modelo=None, **_):
-            pass
+        modelo = "falso"
 
         def corregir(self, texto):
             return "El cliente pidió tres cajas."
 
-    monkeypatch.setattr(ai_mod, "CorrectorIA", _NubeOK)
+        def disponible(self):
+            return True, ""
+
+    monkeypatch.setattr(prov_mod, "seleccion_nube", lambda: _NubeOK())
 
     adapter = _falso_adapter()
     capture = _falsa_capture("El cliente pidio tres cajas")
@@ -98,14 +100,16 @@ def test_nube_que_no_confia_no_escribe(monkeypatch):
     """La nube devolvió texto que no pasa las guardas: no se pisa nada."""
 
     class _NubeRoto:
-        def __init__(self, modelo=None, **_):
-            pass
+        modelo = "falso"
 
         def corregir(self, texto):
             # Acorta a la mitad: la guarda lo rechaza
             return "El cliente"
 
-    monkeypatch.setattr(ai_mod, "CorrectorIA", _NubeRoto)
+        def disponible(self):
+            return True, ""
+
+    monkeypatch.setattr(prov_mod, "seleccion_nube", lambda: _NubeRoto())
 
     adapter = _falso_adapter()
     capture = _falsa_capture("El cliente pidio tres cajas de combustible")
@@ -120,13 +124,15 @@ def test_nube_sin_respuesta_no_escribe(monkeypatch):
     """La nube devuelve None: no se pisa nada, se deja el original."""
 
     class _NubeNada:
-        def __init__(self, modelo=None, **_):
-            pass
+        modelo = "falso"
 
         def corregir(self, texto):
             return None
 
-    monkeypatch.setattr(ai_mod, "CorrectorIA", _NubeNada)
+        def disponible(self):
+            return True, ""
+
+    monkeypatch.setattr(prov_mod, "seleccion_nube", lambda: _NubeNada())
 
     adapter = _falso_adapter()
     capture = _falsa_capture("hola mundo con error")
