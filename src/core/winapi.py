@@ -377,6 +377,29 @@ def _enviar_teclas(eventos: list) -> int:
     return user32.SendInput(len(eventos), arreglo, _INPUT_SIZE)
 
 
+def escribir_texto(texto: str) -> None:
+    """
+    Escribe texto como si fueran pulsaciones, con KEYEVENTF_UNICODE.
+
+    Es el ultimo recurso para apps que no aceptan Ctrl+V (la ventana de
+    redaccion de Outlook, por ejemplo) pero si responden al teclado.
+
+    Si hay una seleccion activa, escribir encima la REEMPLAZA: por eso sirve
+    para corregir sin tener que borrar antes.
+    """
+    eventos = []
+    for caracter in texto:
+        if caracter == "\n":
+            eventos.append(_evento_tecla(VK_RETURN, 0, 0))
+            eventos.append(_evento_tecla(VK_RETURN, 0, _KEYEVENTF_KEYUP))
+            continue
+        eventos.append(_evento_tecla(0, ord(caracter), _KEYEVENTF_UNICODE))
+        banderines = _KEYEVENTF_UNICODE | _KEYEVENTF_KEYUP
+        eventos.append(_evento_tecla(0, ord(caracter), banderines))
+    _enviar_teclas(eventos)
+    time.sleep(0.5)
+
+
 def escribir_por_teclado(actual: str, nuevo: str, margen: int = 6) -> None:
     """
     Reemplaza el contenido de un campo escribiendo como si fuera un teclado.
@@ -420,17 +443,7 @@ def escribir_por_teclado(actual: str, nuevo: str, margen: int = 6) -> None:
         _enviar_teclas(eventos)
         time.sleep(0.4)
 
-        eventos = []
-        for caracter in nuevo:
-            if caracter == "\n":
-                eventos.append(_evento_tecla(VK_RETURN, 0, 0))
-                eventos.append(_evento_tecla(VK_RETURN, 0, _KEYEVENTF_KEYUP))
-                continue
-            eventos.append(_evento_tecla(0, ord(caracter), _KEYEVENTF_UNICODE))
-            banderines = _KEYEVENTF_UNICODE | _KEYEVENTF_KEYUP
-            eventos.append(_evento_tecla(0, ord(caracter), banderines))
-        _enviar_teclas(eventos)
-        time.sleep(0.5)
+        escribir_texto(nuevo)
     finally:
         # El raton del usuario vuelve a donde estaba.
         user32.SetCursorPos(cursor.x, cursor.y)

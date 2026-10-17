@@ -40,6 +40,7 @@ from ..winapi import (
     clipboard_soportado,
     clipboard_write,
     escribir_por_teclado,
+    escribir_texto,
     marcar_clipboard,
     replace_in_app,
     seleccionar_y_copiar,
@@ -261,6 +262,48 @@ class GenericAdapter:
 
         return Capture(text=text, meta={"via": "clipboard", "clipboard_previo": previo})
 
+    def _texto_del_control(self) -> str | None:
+        """Texto completo del control enfocado, o None si no se puede leer."""
+        ctrl = self._focused()
+        if ctrl is None:
+            return None
+        patron = ctrl.GetPattern(auto.PatternId.TextPattern)
+        if patron is not None:
+            try:
+                return patron.DocumentRange.GetText(-1) or ""
+            except Exception:
+                pass
+        valor = ctrl.GetPattern(auto.PatternId.ValuePattern)
+        if valor is not None:
+            try:
+                return valor.Value or ""
+            except Exception:
+                pass
+        return None
+
+    def _pegar_y_verificar(self, texto: str) -> bool:
+        """
+        Pega por portapapeles y comprueba si realmente entro.
+
+        Hace falta porque hay apps que el portapapeles lo leen bien pero que no
+        aceptan el Ctrl+V sintetico: la ventana de redaccion de Outlook es una.
+        Sin esta comprobacion, el corrector reportaria exito sin haber escrito
+        nada, que es peor que fallar.
+        """
+        previo = clipboard_read()
+        try:
+            if not clipboard_paste_into_app(texto):
+                return False
+            time.sleep(self.paste_settle_ms / 1000.0)
+            actual = self._texto_del_control()
+            if actual is None:
+                # No se puede comprobar. Es el caso normal: se da por bueno.
+                return True
+            return texto in actual
+        finally:
+            if previo is not None:
+                clipboard_write(previo)
+
     def write(self, ctx, capture: Capture, text: str) -> None:
         if capture.meta.get("via") == "uia-value":
             # Campo entero: se escribe entero, que es lo que se leyo.
@@ -300,12 +343,15 @@ class GenericAdapter:
             if actual is not None and actual.text != capture.text:
                 raise RuntimeError("la seleccion cambio: no se escribe nada")
 
-            previo = clipboard_read()
-            if not clipboard_paste_into_app(text):
-                raise RuntimeError("no se pudo escribir en el portapapeles")
-            time.sleep(self.paste_settle_ms / 1000.0)
-            if previo is not None:
-                clipboard_write(previo)
+            # Primero se intenta el portapapeles: es lo rapido y conserva el
+            # formato. Pero hay apps que lo leen bien y NO aceptan el Ctrl+V:
+            # la ventana de redaccion de Outlook es una. Ahi se comprueba si
+            # el pegado sirvio y, si no, se escribe a mano.
+            if self._pegar_y_verificar(text):
+                return
+
+            log.info("el portapapeles no sirvio en esta app: se escribe a mano")
+            escribir_texto(text)
             return
 
         # Si la lectura fue por UIA, el portapapeles todavia es del usuario y

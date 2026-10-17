@@ -58,7 +58,7 @@ ejecutar.
 | Chrome: `<textarea>` | ✅ | ✅ | Lee por `TextPattern`, sin pasar por portapapeles |
 | Chrome: `contenteditable` | ✅ | ✅ | Ídem |
 | **Flet / Flutter (campos)** | ✅ | ✅ | Sin `TextPattern` y sin `Ctrl+C`: corrige el campo entero |
-| **Outlook (redactar)** | ✅ UIA | ✅ | Corregir en la ventana de redacción |
+| **Outlook (redactar)** | ✅ UIA | ✅ | No acepta `Ctrl+V`: escribe a mano tras comprobarlo |
 | **Outlook (bandeja)** | ✅ lectura | ❌ | El panel de lectura es **solo lectura**: no se puede pegar |
 | Word | ✅ COM | ✅ | Conserva párrafos y formato; no duplica párrafos |
 | Excel | ✅ COM | ✅ | Solo celdas de texto; fórmulas y números intactos |
@@ -69,7 +69,7 @@ Se dice explícitamente para no dar por bueno lo que no se probó:
 
 | Sin verificar | Por qué |
 |---|---|
-| **Outlook / correo** | La lectura por UIA está confirmada (el panel expone selección), pero **no se pudo automatizar la escritura** sin tocar un correo real. El panel de lectura de la bandeja es **solo lectura**: ahí no hay nada que hacer. Falta probar la ventana de redacción a mano. |
+| **Outlook / correo** | Verificado en la ventana de redacción. El panel de lectura de la bandeja es solo lectura: ahí no hay nada que corregir. |
 | **ERP (Centura)** | No se automatizó por riesgo de tocar datos reales de negocio. Además suele **correrse como administrador**: si es el caso, el corrector detecta el bloqueo (UIPI) y avisa con tono grave, pero no puede corregirlo. Habría que lanzarlo elevated. |
 | **Other navegadores** | Solo Chrome. Brave, Firefox y Edge comparten tecnología pero no se probaron. |
 | **Consolas / terminal** | Sin verificar. |
@@ -250,6 +250,20 @@ problema):
 Además, antes de cada `Ctrl+C` se **vacía el portapapeles**. Si no, copiar dos
 veces el mismo texto no produce ningún cambio detectable y el corrector
 concluiría erróneamente que no hay nada seleccionado.
+
+### Pegar, comprobar, y si no, escribir
+
+Hay aplicaciones que **leen bien el portapapeles pero no aceptan el `Ctrl+V`
+sintético**: la ventana de redacción de Outlook es el caso. Ahí, pegar "funciona"
+en el sentido de que no da error, pero no escribe nada.
+
+Por eso, cuando la selección vino de UIA, el corrector **pega y después
+comprueba** si el texto entró. Si no entró, escribe a mano con
+`KEYEVENTF_UNICODE`, que sí responde en esas apps (y que además reemplaza la
+selección directamente).
+
+Sin esa comprobación, el corrector informaría éxito sin haber escrito nada, que
+es peor que fallar.
 - Word: nunca se reemplaza la marca de párrafo final, así que no se crean
   párrafos de más.
 
