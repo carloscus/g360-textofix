@@ -17,6 +17,7 @@ from __future__ import annotations
 import argparse
 import ctypes
 import logging
+import os
 import sys
 
 from core import feedback
@@ -51,10 +52,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--modo",
         choices=("mock", "ia"),
-        default="mock",
+        default="ia",
         help=(
             "mock: no usa IA, devuelve el texto igual (para probar la mecanica). "
-            "ia: corrige de verdad con Gemini (Etapa 2)."
+            "ia: corrige de verdad con Gemini. Es el por defecto del .exe; "
+            "solo queda mock cuando no hay clave."
         ),
     )
     parser.add_argument(
@@ -90,6 +92,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="Informa que ventana esta en primer plano y que adaptador usaria.",
     )
+    parser.add_argument(
+        "--modelo",
+        default=None,
+        help=(
+            "Modelo de Gemini a usar (default: gemini-2.5-flash-lite, el mas rapido). "
+            "Opciones de la capa gratuita: gemini-2.5-flash-lite, gemini-2.5-flash, "
+            "gemini-2.0-flash, gemini-1.5-flash."
+        ),
+    )
     parser.add_argument("--sin-sonido", action="store_true", help="Desactiva los tonos.")
     parser.add_argument("-v", "--verbose", action="store_true", help="Detalle en consola.")
 
@@ -120,25 +131,33 @@ def _install_console_handler(listener) -> None:
 
 def _asegurar_clave() -> bool:
     """
-    Comprueba que haya clave de Gemini, y la pide si hace falta.
+    Comprueba que haya un proveedor de IA disponible, y pide la clave si hace falta.
 
-    Se pide UNA sola vez y se guarda cifrada en el perfil, asi que el proximo
-    arranque no vuelve a molestar. Si la consola no es interactiva (un `.exe`
-    lanzado por atajo o por el registro), no se puede preguntar y se avisa:
-    pedir una clave en una ventana que nadie ve solo enoja al usuario.
+    Solo hay que pedir la clave cuando se usa Gemini. Ollama es local y no
+    necesita clave: si el modelo no esta descargado, se pide que lo haga con
+    `ollama pull`.
     """
-    from core.ai import CorrectorIA
     from core.perfil import guardar_clave_api, hay_clave_api, leer_clave_api
+    from core.proovedor import es_gemini, seleccion_proveedor
 
     log = logging.getLogger(LOGGER_NAME)
 
-    corrector = CorrectorIA()
-    listo, motivo = corrector.disponible()
+    prov = seleccion_proveedor()
+    listo, motivo = prov.disponible()
     if listo:
-        log.info("clave de Gemini disponible")
+        log.info("proovedor listo")
         return True
 
-    # Solo se puede pedir si falta la clave y hay quien pueda escribirla.
+    # Ollama no esta arriba o no tiene el modelo: se pide que lo descargue una vez.
+    # No se pide clave.
+    if not es_gemini(prov):
+        log.error(
+            "Ollama no disponible: %s. Descargalo de ollama.com y ejecuta: ollama pull llama3.2:3b",
+            motivo,
+        )
+        return False
+
+    # Gemini sin clave. Solo se puede pedir si hay quien pueda escribirla.
     if "falta la clave" not in motivo or hay_clave_api() or sys.stdin is None or sys.stdin.closed:
         log.error("modo IA no disponible: %s", motivo)
         return False
@@ -167,7 +186,17 @@ def _asegurar_clave() -> bool:
         return False
 
     log.info("clave guardada cifrada en el perfil")
+    from core.ai import CorrectorIA
+
     return CorrectorIA(api_key=leer_clave_api()).disponible()[0]
+
+
+def _clavedisponible() -> bool:
+    """Si hay un proveedor de IA disponible (Ollama o Gemini)."""
+    from core.proovedor import seleccion_proveedor
+
+    listo, _ = seleccion_proveedor().disponible()
+    return listo
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -196,13 +225,24 @@ def main(argv: list[str] | None = None) -> int:
         return 3
 
     if args.once:
-        outcome = run_once(cfg, mode=modo, transform=args.mock_transform)
+        outcome = run_once(
+            cfg,
+            mode=modo,
+            transform=args.mock_transform,
+            modelo=args.modelo or os.environ.get("GEMINI_MODEL") or None,
+        )
         log.info("resultado=%s adaptador=%s", outcome.reason, outcome.adapter or "-")
         return 0 if outcome.ok else 1
 
     if not cfg.enabled:
         log.warning("desactivado por configuracion (TEXTOFIX_ENABLED=0)")
         return 0
+
+    # Un .exe sin clave no debe arrancar roto: baja a mock y avisa claro.
+    # El .bat ya trae la clave, pero el .exe de otro usuario puede no tenerla.
+    if modo == MODO_IA and not _clavedisponible():
+        log.warning("no hay clave de Gemini: se arranca en modo simulado")
+        modo = MODO_MOCK
 
     from core.bandeja import Bandeja
     from core.estado import Correccion, Estado
@@ -248,6 +288,7 @@ def main(argv: list[str] | None = None) -> int:
             cfg,
             mode=modo,
             transform=args.mock_transform,
+            modelo=args.modelo or os.environ.get("GEMINI_MODEL") or None,
             al_corregir=lambda o, c, p: estado.registrar_correccion(
                 Correccion(proceso=p, original=o, corregido=c)
             ),
@@ -293,7 +334,15 @@ def main(argv: list[str] | None = None) -> int:
     log.info("  bandeja activa. Ctrl+C para salir.")
 
     if modo == MODO_IA:
-        log.info("MODO IA: se corrige con Gemini. Cada correccion consume cuota.")
+        # El proovedor es Ollama o Gemini: se mira en el log, no se asume.
+        from core.proovedor import etiqueta as _etiqueta_prov
+        from core.proovedor import seleccion_proveedor
+
+        _prov = _etiqueta_prov(seleccion_proveedor())
+        if _prov == "ollama":
+            log.info("MODO IA local: corrige con Ollama, sin cuota, sin red.")
+        else:
+            log.info("MODO IA por la nube: se corrige con Gemini. Cada correccion consume cuota.")
     else:
         log.warning(
             "MODO SIMULADO: el texto se devuelve SIN corregir. Para corregir de verdad: --modo ia"

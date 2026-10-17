@@ -401,6 +401,7 @@ dependencies = [
 [package.optional-dependencies]
 ai = [
     { name = "google-genai" },
+    { name = "httpx" },
 ]
 pack = [
     { name = "nuitka" },
@@ -415,6 +416,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "google-genai", marker = "extra == 'ai'", specifier = ">=2.31.0" },
+    { name = "httpx", marker = "extra == 'ai'", specifier = ">=0.27" },
     { name = "nuitka", marker = "extra == 'pack'", specifier = ">=2.0" },
     { name = "pillow", specifier = ">=10" },
     { name = "pyinstaller", marker = "extra == 'pack'", specifier = ">=6.0" },

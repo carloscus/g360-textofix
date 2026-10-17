@@ -22,7 +22,7 @@ from .logsetup import LOGGER_NAME, describe
 
 log = logging.getLogger(LOGGER_NAME)
 
-MODELO_POR_DEFECTO = "gemini-3.8-flash"
+MODELO_POR_DEFECTO = "gemini-2.5-flash-lite"
 
 
 def _clave_almacenada() -> str | None:

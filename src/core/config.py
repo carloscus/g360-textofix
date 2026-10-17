@@ -61,7 +61,6 @@ def cargar_dotenv(ruta: Path | None = None) -> bool:
 
 @dataclass(frozen=True)
 class Config:
-
     # Espera a que la app destino responda al Ctrl+C sintetico.
     clipboard_timeout_ms: int = 400
 
@@ -82,7 +81,7 @@ class Config:
 
     # --- Etapa 2 (Gemini) ---
     gemini_model: str = field(
-        default_factory=lambda: os.environ.get("GEMINI_MODEL", "gemini-3.8-flash")
+        default_factory=lambda: os.environ.get("GEMINI_MODEL", "gemini-2.5-flash-lite")
     )
     gemini_timeout_s: int = field(default_factory=lambda: _env_int("GEMINI_TIMEOUT_S", 8))
 

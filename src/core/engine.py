@@ -44,6 +44,16 @@ def com_inicializado():
 
     try:
         with auto.UIAutomationInitializerInThread():
+            # Warm-up: la primera vez que uiautomation toca COM en este hilo
+            # dispara la advertencia "CoInitialize has not been called".
+            # Si se hace AQUI dentro del contexto, la advertencia queda
+            # contenida y los llamadores siguientes no la ven.
+            try:
+                auto.GetFocusedControl()
+            except Exception:
+                # Se espera que falle si no hay ninguna ventana: lo que
+                # importa es que la inicializacion ya esta lista.
+                pass
             yield
     except OSError as exc:  # pragma: no cover
         # Sin COM no hay UIA, pero el adaptador generico todavia puede
@@ -81,23 +91,27 @@ def mock_correct(text: str, transform: str) -> str:
     return text
 
 
-def correct(text: str, mode: str, transform: str) -> str | None:
+def correct(text: str, mode: str, transform: str, modelo: str | None = None) -> str | None:
     """
     Produce la version corregida del texto.
 
     En modo `mock` no hay IA: devuelve el texto igual (o entrecomillado con
     `wrap`), que es lo que permite validar la mecanica sin gastar API.
 
-    En modo `ia` llama a Gemini. Si algo falla devuelve None y el llamador
-    conserva el original: fallar es siempre preferible a escribir cualquier cosa.
+    En modo `ia` llama a Gemini. `modelo`, si se da, manda sobre el default.
+    Si algo falla devuelve None y el llamador conserva el original: fallar
+    es siempre preferible a escribir cualquier cosa.
     """
     if mode == "mock":
         return mock_correct(text, transform)
 
     if mode == "ia":
-        from .ai import CorrectorIA
+        from .proovedor import es_ollama, seleccion_proveedor
 
-        return CorrectorIA().corregir(text)
+        prov = seleccion_proveedor()
+        if es_ollama(prov) and modelo:
+            prov.modelo = modelo
+        return prov.corregir(text)
 
     raise NotImplementedError(f"modo de correccion desconocido: {mode}")
 
@@ -106,20 +120,27 @@ def correct(text: str, mode: str, transform: str) -> str | None:
 
 
 def run_once(
-    cfg: Config, mode: str = "mock", transform: str = "roundtrip", al_corregir=None
+    cfg: Config,
+    mode: str = "mock",
+    transform: str = "roundtrip",
+    al_corregir=None,
+    modelo: str | None = None,
 ) -> Outcome:
     """
     Ejecuta una correccion sobre lo que este seleccionado en pantalla.
 
     `al_corregir(original, corregido, proceso)` se invoca solo si se llego a
-    escribir. Los textos nunca se loguean, pero deshacer necesita el par en
-    memoria: por eso viajan por el callback y no por el log.
+    escribir. `modelo`, si se da, manda sobre el default de `correct()`.
+    Los textos nunca se loguean, pero deshacer necesita el par en memoria:
+    por eso viajan por el callback y no por el log.
     """
     with com_inicializado():
-        return _ciclo(cfg, mode, transform, al_corregir)
+        return _ciclo(cfg, mode, transform, al_corregir, modelo)
 
 
-def _ciclo(cfg: Config, mode: str, transform: str, al_corregir) -> Outcome:
+def _ciclo(
+    cfg: Config, mode: str, transform: str, al_corregir, modelo: str | None = None
+) -> Outcome:
     """El ciclo de la correccion. Ver `run_once`."""
     ctx = foreground_context()
     if ctx is None:
@@ -157,7 +178,9 @@ def _ciclo(cfg: Config, mode: str, transform: str, al_corregir) -> Outcome:
     log.debug("leido via %s: %s", adapter.name, describe(original))
 
     try:
-        return _corregir_y_escribir(adapter, ctx, cfg, capture, mode, transform, al_corregir)
+        return _corregir_y_escribir(
+            adapter, ctx, cfg, capture, mode, transform, al_corregir, modelo
+        )
     finally:
         # Siempre, se haya escrito o no: deja el portapapeles como estaba.
         # Si la correccion se rechaza, el usuario no debe quedarse con su
@@ -168,11 +191,13 @@ def _ciclo(cfg: Config, mode: str, transform: str, al_corregir) -> Outcome:
             log.debug("release fallo en %s: %s", adapter.name, exc)
 
 
-def _corregir_y_escribir(adapter, ctx, cfg, capture, mode, transform, al_corregir) -> Outcome:
+def _corregir_y_escribir(
+    adapter, ctx, cfg, capture, mode, transform, al_corregir, modelo: str | None = None
+) -> Outcome:
     """Corrige, valida y, si todo cuadra, reemplaza. Ver `run_once`."""
     original = capture.text
     try:
-        candidate = correct(original, mode, transform)
+        candidate = correct(original, mode, transform, modelo=modelo)
     except NotImplementedError:
         feedback.error()
         return Outcome(False, "sin-modo-de-correccion", adapter=adapter.name)

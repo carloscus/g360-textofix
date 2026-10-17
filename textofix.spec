@@ -41,10 +41,15 @@ for nombre in ("UIAutomationCore.dll",):
     if cand.exists():
         binarios.append((str(cand), "."))
 if not binarios:
-    # pywin32 puede estar instalado en el site-packages del venv de uv.
-    import uiautomation as _ua
-
-    base = Path(_ua.__file__).resolve().parent
+    # pywin32 / uiautomation estan en el site-packages del venv de uv.
+    import importlib.util
+    spec = importlib.util.find_spec("uiautomation")
+    if spec is None:
+        raise SystemExit(
+            "uiautomation no esta en el entorno. "
+            "Corre primero: uv sync --extra ai --extra pack"
+        )
+    base = Path(spec.origin).resolve().parent
     for cand in base.glob("*.dll"):
         binarios.append((str(cand), "."))
 

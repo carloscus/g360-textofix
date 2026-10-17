@@ -1,9 +1,10 @@
 """
 Bateria de frases contra el modelo real.
 
-No toca ninguna pantalla ni escribe en ninguna aplicacion: solo llama a Gemini
-y muestra el antes y el despues. Sirve para medir el prompt antes de confiar en
-el corrector con texto real.
+No toca ninguna pantalla ni escribe en ninguna aplicacion: solo llama al
+proovedor elegido (Ollama local o Gemini, el que este disponible) y muestra
+el antes y el despues. Sirve para medir el prompt antes de confiar en el
+corrector con texto real.
 
     uv run python src/main.py --bateria          # todas
     uv run python src/main.py --bateria tilde    # solo las que coinciden
@@ -13,8 +14,9 @@ from __future__ import annotations
 
 import time
 
-from .ai import CorrectorIA, CuotaAgotada
+from .ai import CuotaAgotada
 from .guards import validate
+from .proovedor import seleccion_proveedor
 
 
 def _mismo_texto(a: str, b: str) -> bool:
@@ -41,12 +43,13 @@ def casos_disponibles():
 
 
 def ejecutar(filtro: str = "", pausa: float = 0.0) -> int:
-    corrector = CorrectorIA()
+    corrector = seleccion_proveedor()
 
     listo, motivo = corrector.disponible()
     if not listo:
         print(f"No se puede probar: {motivo}")
-        print("Revisa .env (puedes copiar .env.example) y corre: uv sync --extra ai")
+        print("Gemini: revisa .env y corré: uv sync --extra ai")
+        print("Ollama: corré: ollama pull llama3.2:3b y arranque Ollama")
         return 1
 
     casos = [c for c in casos_disponibles() if filtro in c.nombre]
@@ -54,7 +57,8 @@ def ejecutar(filtro: str = "", pausa: float = 0.0) -> int:
         print(f"Ningun caso coincide con {filtro!r}")
         return 1
 
-    print(f"Modelo: {corrector.modelo}")
+    modelo = getattr(corrector, "modelo", "desconocido")
+    print(f"Provevedor: {type(corrector).__module__.split('.')[-1]}  modelo: {modelo}")
     print(f"Casos: {len(casos)}")
     if pausa:
         print(f"Pausa entre casos: {pausa}s")

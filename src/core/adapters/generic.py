@@ -86,10 +86,12 @@ class GenericAdapter:
         try:
             ctrl = auto.GetFocusedControl()
         except Exception as exc:
-            # Fallo tipico: COM sin inicializar en este hilo. No se propaga
-            # porque el portapapeles todavia puede funcionar, pero conviene
-            # que se vea en vez de degradar en silencio.
-            log.warning("UIA no disponible en este hilo: %s", exc)
+            # Fallo tipico: COM sin inicializar en este hilo, o sin ventana.
+            # No se propaga porque el portapapeles todavia puede funcionar.
+            # Va a debug porque `engine.com_inicializado()` ya hace un
+            # warm-up: si llega aca, la causa es mas rara (y el portapapeles
+            # la va a tapar si puede).
+            log.debug("UIA no disponible en este hilo: %s", exc)
             return None
 
         if ctrl is None:

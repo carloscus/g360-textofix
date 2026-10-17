@@ -378,6 +378,18 @@ class EscuchaAtajos:
             log.info("atajo %s -> %s", accion, describir_atajo(atajo))
 
     def _bucle(self) -> None:
+        # COM una vez en este hilo: UI Automation es COM, y hay que
+        # inicializarlo por hilo. Sin esto, la primera vez que se intenta
+        # leer con UIA en el hilo del atajo fallaria con
+        # "CoInitialize has not been called".
+        # Si COM ya esta inicializado (hilo principal), es inofensivo.
+        try:
+            import uiautomation as auto
+
+            auto.UIAutomationInitializerInThread()
+        except Exception:
+            pass
+
         msg = _MSG()
         while True:
             resultado = user32.GetMessageW(ctypes.byref(msg), None, 0, 0)
