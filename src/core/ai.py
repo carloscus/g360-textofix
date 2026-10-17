@@ -226,7 +226,11 @@ class CorrectorIA:
             except Exception as exc:
                 if not _es_cuota(exc) or intento == 2:
                     raise CuotaAgotada(_mensaje_de_cuota(exc)) from exc
-                espera = _espera_sugerida(exc) or 15
+                # El retry-delay puede venir en segundos o milisegundos.
+                # Para un corrector, 110 minutos de espera congelado es
+                # inaceptable: se limita a 120s. El usuario puede apretar
+                # el atajo de nuevo cuando el contador renueve.
+                espera = min(_espera_sugerida(exc) or 15, 120)
                 log.warning(
                     "cuota alcanzada: se reintenta en %ds (intento %d/2)", espera, intento + 1
                 )

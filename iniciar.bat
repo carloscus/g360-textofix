@@ -27,6 +27,7 @@ echo [G360] Iniciando corrector. Atajos: Ctrl+Shift+E / Z / R
 echo [G360] La primera vez te pide la clave de Gemini y la guarda cifrada.
 echo [G360] Ctrl+C para salir.
 echo.
+:: El extra ai trae google-genai (nube) y httpx (Ollama local).
 uv sync --extra ai --quiet
 uv run python src\main.py --modo ia %*
 if errorlevel 1 pause
