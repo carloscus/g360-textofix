@@ -171,11 +171,19 @@ kernel32 = ctypes.windll.kernel32
 
 WM_HOTKEY = 0x0312
 WM_QUIT = 0x0012
+# WM_APP + 1: mensaje privado para pedir un cambio de atajo desde otro hilo.
+WM_CAMBIAR = 0x8001
 HOTKEY_ID_BASE = 0xB360
 
 MOD_NOREPEAT = 0x4000
 
 _MSG = wintypes.MSG
+
+
+def _numero_para(atajos: dict[str, Atajo], accion: str) -> int:
+    """Numero de id que le toca a `accion`, estable aunque se cambie el orden."""
+    orden = list(atajos)
+    return orden.index(accion) + 1 if accion in orden else len(orden) + 1
 
 
 class EscuchaAtajos:
@@ -195,9 +203,106 @@ class EscuchaAtajos:
         self._lock = threading.Lock()
         self._ocupado = set()
         self._al_presionar: Callable[[str], None] | None = None
+        # Pedido de cambio de atajo encolado desde otro hilo; ver `cambiar`.
+        self._pendiente: tuple | None = None
 
     def etiquetas(self) -> dict[str, str]:
         return {accion: a.etiqueta or describir_atajo(a) for accion, a in self.atajos.items()}
+
+    def cambiar(self, accion: str, nuevo: Atajo) -> tuple[bool, str]:
+        """
+        Cambia el atajo de UNA accion, en caliente: no hace falta reiniciar.
+
+        Se ejecuta en el hilo del bucle de mensajes, y no en el que llama.
+        RegisterHotKey con ventana nula ata el atajo al hilo que lo registra:
+        si lo hiciera el hilo de la bandeja, Windows le enviaria el aviso a
+        esa bandeja, que no bombea mensajes, y el atajo quedaria mudo.
+
+        El registro nuevo se intenta ANTES de soltar el viejo, para que un
+        atajo ocupado deje a la accion con su combinacion anterior en vez de
+        sin asignar. Solo si el nuevo entra, se suelta el viejo.
+        """
+        if self._thread_id is None:
+            return self._cambiar_en_este_hilo(accion, nuevo)
+
+        resultado: dict[str, object] = {}
+        listo = threading.Event()
+        self._pendiente = (accion, nuevo, resultado, listo)
+
+        if not user32.PostThreadMessageW(self._thread_id, WM_CAMBIAR, 0, 0):
+            error = ctypes.get_last_error()
+            log.warning("no se pudo encolar el cambio de atajo: error %s", error)
+            self._pendiente = None
+            return False, "no se pudo encolar el cambio"
+
+        # Sin limite estricto: el bucle puede tardar si una accion larga esta
+        # en curso. Un tope evita que la bandeja se quede colgada para siempre.
+        if not listo.wait(timeout=10):
+            self._pendiente = None
+            return False, "se tardo demasiado en cambiar el atajo"
+
+        self._pendiente = None
+        return bool(resultado.get("ok")), str(resultado.get("motivo", ""))
+
+    def _cambiar_en_este_hilo(self, accion: str, nuevo: Atajo) -> tuple[bool, str]:
+        viejo = self.atajos.get(accion)
+        if viejo is not None and viejo == nuevo:
+            return True, "ya estaba asignado"
+
+        id_viejo = self._id_de(accion)
+
+        # Se suelta el viejo ANTES de registrar el nuevo, y no al reves.
+        # Windows rechaza RegisterHotKey si el id ya esta tomado por este mismo
+        # hilo, aunque la combinacion sea distinta: registrar primero y soltar
+        # despues haria que todo cambio fallara siempre.
+        # La ventana sin atajo dura microsegundos y no puede perder un aviso,
+        # porque este hilo es el que bombearia ese aviso y ahora mismo esta aqui.
+        if id_viejo is not None:
+            user32.UnregisterHotKey(None, id_viejo)
+            del self._ids[id_viejo]
+
+        numero = _numero_para(self.atajos, accion)
+        if not user32.RegisterHotKey(
+            None, HOTKEY_ID_BASE + numero, nuevo.modificadores | MOD_NOREPEAT, nuevo.tecla
+        ):
+            error = ctypes.get_last_error()
+            log.warning("no se pudo registrar %s: error %s", describir_atajo(nuevo), error)
+            # El nuevo no entro: se restaura el viejo, que la accion no se
+            # quede sin atajo por querer mejorarla.
+            if viejo is not None and id_viejo is not None:
+                if user32.RegisterHotKey(
+                    None, id_viejo, viejo.modificadores | MOD_NOREPEAT, viejo.tecla
+                ):
+                    self._ids[id_viejo] = accion
+                else:
+                    log.error("no se pudo restaurar el atajo de %s", accion)
+            return False, f"{describir_atajo(nuevo)} esta ocupado"
+
+        self._ids[HOTKEY_ID_BASE + numero] = accion
+        self.atajos[accion] = nuevo
+        log.info("atajo %s -> %s", accion, describir_atajo(nuevo))
+        return True, describir_atajo(nuevo)
+
+    def _procesar_cambio(self) -> None:
+        """Atiende el pedido de cambio en el hilo que si bombea mensajes."""
+        pendiente = self._pendiente
+        self._pendiente = None
+        if pendiente is None:
+            return
+        accion, nuevo, resultado, listo = pendiente
+        try:
+            ok, motivo = self._cambiar_en_este_hilo(accion, nuevo)
+        except Exception as exc:  # un fallo no debe dejar la bandeja esperando
+            log.exception("fallo cambiando el atajo de %s", accion)
+            ok, motivo = False, f"fallo inesperado: {exc}"
+        resultado.update(ok=ok, motivo=motivo)
+        listo.set()
+
+    def _id_de(self, accion: str) -> int | None:
+        for id_hotkey, a in self._ids.items():
+            if a == accion:
+                return id_hotkey
+        return None
 
     # --- API ----------------------------------------------------------------
 
@@ -280,6 +385,9 @@ class EscuchaAtajos:
                 break
             if msg.message == WM_HOTKEY:
                 self._disparar(self._ids.get(msg.wParam))
+                continue
+            if msg.message == WM_CAMBIAR:
+                self._procesar_cambio()
                 continue
             user32.TranslateMessage(ctypes.byref(msg))
             user32.DispatchMessageW(ctypes.byref(msg))

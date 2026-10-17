@@ -68,13 +68,23 @@ def imagen_icono() -> Image.Image:
     return Image.new("RGB", (32, 32), (11, 18, 32))
 
 
+def _elegir(orden: list[str], texto: str) -> str | None:
+    """Acepta tanto el numero (1, 2, 3) como el nombre de la accion."""
+    limpio = texto.strip().lower()
+    if limpio.isdigit():
+        indice = int(limpio) - 1
+        return orden[indice] if 0 <= indice < len(orden) else None
+    return next((a for a in orden if a.lower() == limpio), None)
+
+
 class Bandeja:
     """Icono de la bandeja con el menu del corrector."""
 
-    def __init__(self, estado, acciones: dict, al_cerrar=None):
+    def __init__(self, estado, acciones: dict, al_cerrar=None, escucha=None):
         self.estado = estado
         self.acciones = acciones  # {"corregir": fn, "deshacer": fn, ...}
         self.al_cerrar = al_cerrar
+        self.escucha = escucha  # EscuchaAtajos, para re-registrar en caliente
         self._icono = None
 
     # --- Menu ---------------------------------------------------------------
@@ -165,25 +175,82 @@ class Bandeja:
         self.refrescar()
 
     def _cambiar_atajo(self, *_):
-        from .hotkey import AtajoInvalido, parsear_atajo
+        """
+        Cambia un atajo: lo re-registra YA y lo guarda en el perfil.
 
-        print("\n[g360-textofix] Atajos")
-        print("Formato: CTRL+SHIFT+E  (CTRL, ALT, SHIFT, WIN + letra, digito o F1-F24)")
-        print("ENTER para dejar todo como estaba.")
+        Re-registrar en caliente en vez de pedir un reinicio es la diferencia
+        entre que alguien cambie el atajo y que lo deje como estaba.
+        """
+        from .hotkey import AtajoInvalido, describir_atajo, parsear_atajo
+        from .perfil import guardar_atajo
+
+        if self.escucha is None:
+            print("\n[g360-textofix] Los atajos no se pueden cambiar en caliente.")
+            return
+
+        actuales = self.escucha.etiquetas()
+        registrados = self.escucha.atajos
+        if not actuales:
+            print("\n[g360-textofix] No hay ningun atajo registrado.")
+            return
+
+        print("\n[g360-textofix] Atajos actuales")
+        orden = list(actuales)
+        for i, accion in enumerate(orden, start=1):
+            print(f"  {i}. {accion:9} {actuales[accion]}")
+
+        print("\nQue accion queres cambiar? (numero, o ENTER para cancelar)")
         try:
-            respuesta = input("Nuevo atajo: ").strip()
+            eleccion = input("> ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print("\nCancelado.")
+            return
+        if not eleccion:
+            return
+
+        accion = _elegir(orden, eleccion)
+        if accion is None:
+            print("Ese numero no existe.")
+            return
+
+        print(f"\nNuevo atajo para {accion} ({actuales[accion]}).")
+        print("Formato: CTRL+SHIFT+E  (CTRL, ALT, SHIFT, WIN + letra, digito o F1-F24)")
+        try:
+            respuesta = input("> ").strip()
         except (EOFError, KeyboardInterrupt):
             print("\nCancelado.")
             return
         if not respuesta:
             return
+
         try:
-            parsear_atajo(respuesta)
+            atajo = parsear_atajo(respuesta)
         except AtajoInvalido as exc:
             print(f"No se entiende: {exc}")
             return
-        print(f"Atajo: {respuesta.upper()}")
-        print("Guardalo en el perfil para que persista.")
+
+        # No se puede repetir un atajo que otra accion ya tenga: Windows no lo
+        # aceptaria y el usuario quedaria sin saber cual de las dos manda.
+        repetido = next(
+            (a for a, t in registrados.items() if a != accion and t == atajo),
+            None,
+        )
+        if repetido is not None:
+            print(f"Ya lo usa {repetido} ({actuales[repetido]}). Elegi otra combinacion.")
+            return
+
+        listo, motivo = self.escucha.cambiar(accion, atajo)
+        if not listo:
+            print(f"No se pudo cambiar: {motivo}. Se deja {actuales[accion]}.")
+            return
+
+        normalizado = describir_atajo(atajo)
+        try:
+            guardar_atajo(accion, normalizado)
+            print(f"{accion}: {normalizado}. Guardado y activo.")
+        except OSError as exc:
+            print(f"{accion}: {normalizado} activo, pero no se pudo guardar: {exc}")
+
         self.refrescar()
 
     def salir(self, *_) -> None:

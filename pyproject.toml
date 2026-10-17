@@ -11,9 +11,14 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# La IA es OPCIONAL: sin esta extra el corrector funciona igual (Etapa 1).
+# La IA es OPCIONAL: sin esta extra el corrector funciona en modo demo.
 # Se instala con: uv sync --extra ai
 ai = ["google-genai>=2.31.0"]
+
+# Empaquetado en .exe. No forma parte del corrector: solo quien reparte el
+# binario lo necesita.
+# Se instala con: uv sync --extra pack
+pack = ["pyinstaller>=6.0", "nuitka>=2.0"]
 
 [dependency-groups]
 dev = ["pytest>=8.0"]

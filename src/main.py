@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import ctypes
+import logging
 import sys
 
 from core import feedback
@@ -24,7 +25,8 @@ from core.config import (
     cargar_dotenv,
 )
 from core.engine import aplicar_texto, detect_context, run_once, texto_en_pantalla
-from core.logsetup import setup_logging
+from core.logsetup import LOGGER_NAME, setup_logging
+from core.perfil import ruta_perfil
 
 VERSION = "1.0.0"
 APP_NAME = "g360-textofix"
@@ -37,7 +39,7 @@ MODO_IA = "ia"
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         prog="g360-textofix",
-        description=f"{APP_NAME} v{VERSION} - corrector de texto para Windows (Etapa 1)",
+        description=f"{APP_NAME} v{VERSION} - corrector de texto para Windows",
     )
     parser.add_argument("--version", action="version", version=f"%(prog)s {VERSION}")
 
@@ -116,6 +118,58 @@ def _install_console_handler(listener) -> None:
     ctypes.WinDLL("kernel32", use_last_error=True).SetConsoleCtrlHandler(_handler, 1)
 
 
+def _asegurar_clave() -> bool:
+    """
+    Comprueba que haya clave de Gemini, y la pide si hace falta.
+
+    Se pide UNA sola vez y se guarda cifrada en el perfil, asi que el proximo
+    arranque no vuelve a molestar. Si la consola no es interactiva (un `.exe`
+    lanzado por atajo o por el registro), no se puede preguntar y se avisa:
+    pedir una clave en una ventana que nadie ve solo enoja al usuario.
+    """
+    from core.ai import CorrectorIA
+    from core.perfil import guardar_clave_api, hay_clave_api, leer_clave_api
+
+    log = logging.getLogger(LOGGER_NAME)
+
+    corrector = CorrectorIA()
+    listo, motivo = corrector.disponible()
+    if listo:
+        log.info("clave de Gemini disponible")
+        return True
+
+    # Solo se puede pedir si falta la clave y hay quien pueda escribirla.
+    if "falta la clave" not in motivo or hay_clave_api() or sys.stdin is None or sys.stdin.closed:
+        log.error("modo IA no disponible: %s", motivo)
+        return False
+
+    if not sys.stdin.isatty():
+        log.error("modo IA no disponible: %s", motivo)
+        return False
+
+    print("\n[g360-textofix] Falta la clave de la API de Gemini.")
+    print("Pedila en https://aistudio.google.com/apikey y pegala abajo.")
+    print(f"Se guarda cifrada en: {ruta_perfil()}\n")
+    try:
+        clave = input("Clave (pegala con Ctrl+V): ").strip()
+    except (EOFError, KeyboardInterrupt):
+        print("\nCancelado.")
+        return False
+
+    if not clave:
+        log.error("no se ingreso clave: modo IA no disponible")
+        return False
+
+    try:
+        guardar_clave_api(clave)
+    except OSError as exc:
+        log.error("no se pudo guardar la clave: %s", exc)
+        return False
+
+    log.info("clave guardada cifrada en el perfil")
+    return CorrectorIA(api_key=leer_clave_api()).disponible()[0]
+
+
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     cargar_dotenv()
@@ -138,13 +192,8 @@ def main(argv: list[str] | None = None) -> int:
 
     modo = args.modo
 
-    if modo == MODO_IA:
-        from core.ai import CorrectorIA
-
-        listo, motivo = CorrectorIA().disponible()
-        if not listo:
-            log.error("modo IA no disponible: %s", motivo)
-            return 3
+    if modo == MODO_IA and not _asegurar_clave():
+        return 3
 
     if args.once:
         outcome = run_once(cfg, mode=modo, transform=args.mock_transform)
@@ -233,7 +282,7 @@ def main(argv: list[str] | None = None) -> int:
         "salir": escucha.stop,
     }
 
-    bandeja = Bandeja(estado, acciones)
+    bandeja = Bandeja(estado, acciones, escucha=escucha)
     bandeja.iniciar()
 
     etiquetas = escucha.etiquetas()

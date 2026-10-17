@@ -8,7 +8,8 @@ Reglas de diseno:
 - Cualquier fallo (red, cuota, respuesta rara) devuelve None y el llamador
   conserva el texto original. Nunca se escribe una respuesta sin validar: las
   guardas de `guards.py` son la ultima linea de defensa, no la primera.
-- La clave se lee del entorno y jamas se loguea.
+- La clave se lee del almacén cifrado de Windows (o del entorno en
+  desarrollo) y jamas se loguea.
 """
 
 from __future__ import annotations
@@ -22,6 +23,23 @@ from .logsetup import LOGGER_NAME, describe
 log = logging.getLogger(LOGGER_NAME)
 
 MODELO_POR_DEFECTO = "gemini-3.8-flash"
+
+
+def _clave_almacenada() -> str | None:
+    """
+    La clave del almacén cifrado de Windows, si hay.
+
+    Si `perfil` no puede cargarse (instalacion rota, permisos), se devuelve
+    None y se sigue buscando en el entorno: una carpeta de perfil ilegible no
+    tiene que tumbar el corrector.
+    """
+    try:
+        from .perfil import leer_clave_api
+
+        return leer_clave_api()
+    except Exception as exc:
+        log.debug("no se pudo leer el almacén de la clave: %s", exc)
+        return None
 
 
 class CuotaAgotada(RuntimeError):
@@ -112,12 +130,33 @@ class CorrectorIA:
 
     @property
     def api_key(self) -> str | None:
-        return self._api_key or os.environ.get("GEMINI_API_KEY") or None
+        """
+        La clave, en este orden.
+
+        1. La dada explicitamente (para tests y para la bandeja).
+        2. El almacén cifrado de Windows (DPAPI), que es lo que usa el .exe.
+        3. El entorno o el .env, que es lo comodo en desarrollo.
+
+        El orden importa: el almacen cifrado manda sobre .env, asi que quien
+        cambio la clave desde la bandeja no sigue usando la vieja por tener un
+        .env olvidado al lado.
+
+        Se lee en cada llamada, sin cachear: es un archivo pequeno y se consulta
+        una vez por correccion, antes de una llamada de red que la eclipsa. El
+        cachearlo dejaria la instancia corriendo con la clave vieja despues de
+        cambiarla desde la bandeja, que es un fallo silencioso y caro.
+        """
+        if self._api_key:
+            return self._api_key
+        return _clave_almacenada() or os.environ.get("GEMINI_API_KEY") or None
 
     def disponible(self) -> tuple[bool, str]:
         """Si se puede usar, y por que no si no."""
         if not self.api_key:
-            return False, "falta GEMINI_API_KEY (ponela en .env)"
+            return False, (
+                "falta la clave de Gemini: se pide al arrancar o desde "
+                "'Configurar clave API...' en la bandeja"
+            )
         try:
             import google.genai  # noqa: F401
         except ImportError:

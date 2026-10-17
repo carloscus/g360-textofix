@@ -6,23 +6,26 @@ Microherramienta del ecosistema G360. Seleccionás un texto en cualquier
 aplicación, apretás `Ctrl+Shift+E` y el texto seleccionado se corrige y se
 reemplaza donde estaba, sin perder el formato.
 
-**Estado: Etapa 1 terminada.** El ciclo completo funciona (captura, validación,
-reemplazo) pero todavía **no corrige con IA**: hoy usa un sustituto simulado
-para poder validar la mecánica. La corrección con Gemini es la Etapa 2 y está
-pendiente de configurar la facturación.
+**Estado: Etapa 3 terminada.** Corrige con Gemini, vive en la bandeja del
+sistema, tiene deshacer/rehacer, atajos configurables y se empaqueta en un
+`.exe` único de ~26 MB.
 
 ---
 
 ## Tabla de contenidos
 
 - [Cómo usar](#cómo-usar)
+- [Atajos y bandeja](#atajos-y-bandeja)
+- [Deshacer y rehacer](#deshacer-y-rehacer)
 - [Qué funciona hoy](#qué-funciona-hoy)
 - [Instalación](#instalación)
+- [Distribución: el .exe](#distribución-el-exe)
 - [Comandos](#comandos)
 - [Configuración](#configuración)
+- [Clave de la API y privacidad de la clave](#clave-de-la-api-y-privacidad-de-la-clave)
 - [Cómo decide a quién corregir](#cómo-decide-a-quién-corregir)
 - [Garantías de seguridad](#garantías-de-seguridad)
-- [Etapa 2: corrección con Gemini](#etapa-2-corrección-con-gemini)
+- [Corrección con Gemini](#corrección-con-gemini)
 - [Estructura](#estructura)
 - [Testing](#testing)
 - [Licencia](#licencia)
@@ -41,6 +44,77 @@ pendiente de configurar la facturación.
 | El texto ya estaba bien | No se toca nada. Tono agudo. |
 | No hay nada seleccionado | No se toca nada. Tono medio. |
 | Algo falla (red, respuesta inválida, app protegida) | El original queda intacto. Tono grave. |
+
+Se equivocó y querés volver atrás: `Ctrl + Shift + Z`. Lo querés reponer:
+`Ctrl + Shift + R`.
+
+---
+
+## Atajos y bandeja
+
+El corrector vive en la bandeja del sistema, no en una ventana. El icono es una
+barra verde entre dos grises (el logo G360) y su menú es corto a propósito:
+
+```
+Activo · Modo IA
+──────────────────────────────
+Deshacer corrección            (gris si no hay nada)
+Rehacer corrección             (gris si no hay nada)
+──────────────────────────────
+Cambiar atajo…
+Configurar clave API…
+Iniciar con Windows            ✓
+──────────────────────────────
+Salir
+```
+
+### Cambiar un atajo
+
+`Cambiar atajo…` pide la acción y la combinación, valida el formato, **la
+registra al momento** y la guarda en el perfil. No hace falta reiniciar.
+
+Formato: `CTRL+SHIFT+E`, `ALT+F4`, `CTRL+1`, `WIN+E`, `CTRL+F5` — es decir,
+`CTRL`, `ALT`, `SHIFT` o `WIN` más una letra, un dígito, `F1`–`F24` o alguna
+tecla especial (`SPACE`, `ESC`, `ENTER`, `TAB`, `INSERT`, `DELETE`, `HOME`,
+`END`, `PGUP`, `PGDN`).
+
+Dos atajos iguales se rechazan: Windows no los acepta y quedarías sin saber
+cuál de las dos acciones manda.
+
+Los atajos por defecto y su equivalente en el archivo de perfil:
+
+| Acción | Por defecto | Variable |
+|---|---|---|
+| Corregir | `Ctrl+Shift+E` | `hotkey_corregir` |
+| Deshacer | `Ctrl+Shift+Z` | `hotkey_deshacer` |
+| Rehacer | `Ctrl+Shift+R` | `hotkey_rehacer` |
+
+### Iniciar con Windows
+
+Se registra en `HKCU\...\Run`, es decir, **solo para el usuario que lo
+instaló**, no para todos los que usan el equipo.
+
+---
+
+## Deshacer y rehacer
+
+No se simula un `Ctrl+Z` de la aplicación: se guarda el par
+`(original, corregido)` **en memoria** y se vuelve a escribir el original. Es
+determinista en cualquier app, incluidas las que no responden a `Ctrl+Z`.
+
+El búfer guarda **una sola corrección** —no es historial— y se pierde al
+cerrar. Nunca toca disco.
+
+**Deshacer no es ciego.** Hay dos reglas, y las dos evitan daño:
+
+| Regla | Qué evita |
+|---|---|
+| Solo se deshace en la **misma aplicación** donde se corrigió | Corregiste en Flet, cambiaste a Word y apretaste deshacer: tono de error y **no se escribe nada**. |
+| Se **invalida** si el usuario editó el texto después | Escribir el original encima de lo que el usuario puso sería peor que no deshacer. |
+
+Si la escritura falla, el estado se revierte: el búfer no cree que aplicó algo
+que no se escribió. En la bandeja, ambas opciones aparecen en gris cuando no
+aplican.
 
 ---
 
@@ -84,6 +158,15 @@ corrector, qué adaptador usaría y si está bloqueado por permisos.
 
 ## Instalación
 
+### Opción A: el `.exe` (sin Python)
+
+Descargá `dist/g360-textofix.exe` y ejecutalo. No requiere Python ni `uv`.
+
+La primera vez te pide la clave de la API de Gemini. Podés pegarla desde la
+consola con `Ctrl+V` o desde el menú de la bandeja (`Configurar clave API…`).
+
+### Opción B: desde el código
+
 Requiere Windows y [uv](https://github.com/astral-sh/uv) (se encarga solo del
 entorno y las dependencias).
 
@@ -99,12 +182,65 @@ Alternativa sin `.bat`:
 
 ```powershell
 uv sync
-uv run python src/main.py
+uv run python src/main.py --modo ia
 ```
 
 > **Nota sobre Python**: el proyecto no depende del Python del sistema. `uv`
 > crea su propio entorno. Los lanzadores `py` y `pytest` del sistema apuntan a
 > un Python 3.14 que no está instalado; por eso todo pasa por `uv run`.
+
+### Empaquetar el `.exe`
+
+```powershell
+uv sync --extra pack
+uvx pyinstaller textofix.spec --noconfirm
+```
+
+Sale un único archivo en `dist/g360-textofix.exe` (~26 MB) con el icono
+incrustado. El `.spec` ya trae los `datas` (icono y batería de frases), así
+que `--bateria` funciona también dentro del ejecutable.
+
+Si el antivirus lo detecta como sospechoso (falso positivo por ser un `.exe`
+de Python que simula teclas), Nuitka produce un binario más discreto:
+
+```powershell
+uv sync --extra pack
+uv run python -m nuitka --onefile --windows-console-mode=disable `
+    --windows-icon-from-ico=assets/g360-textofix.ico `
+    --include-data-dir=assets=assets --include-data-dir=src/core=casos `
+    --output-filename=g360-textofix.exe src/main.py
+```
+
+---
+
+## Distribución: el `.exe`
+
+**No se embebe ninguna clave.** Cada usuario introduce la suya la primera vez y
+se guarda cifrada en su `%APPDATA%\g360-textofix\`. El ejecutable no lleva
+secretos, así que puede repartirse libremente.
+
+### Dónde guarda cada cosa
+
+```
+%APPDATA%\g360-textofix\
+├── clave.dat     # la clave de Gemini, cifrada con DPAPI
+└── config.json   # atajos, iniciar con Windows, activo/inactivo
+```
+
+**DPAPI** es la cifrado del propio Windows, atada a la cuenta del usuario. No
+hay contraseña que recordar porque no existe contraseña: lo descifra Windows
+solo para esa cuenta. Copiar `clave.dat` a otro equipo o a otra cuenta **no
+sirve de nada**, y el archivo no contiene la clave en texto claro.
+
+Para cambiar de clave, `Configurar clave API…` en la bandeja. Para borrarla del
+todo, hay `borrar_clave_api()` en `src/core/perfil.py`.
+
+### Uso en un solo equipo
+
+Si solo lo usás vos, también podés dejar la clave en `.env` en la carpeta del
+proyecto (git-ignorada). `iniciar.bat` la detecta y arranca en modo IA. El
+almacenamiento DPAPI existe justamente para el `.exe`, que no tiene carpeta de
+proyecto.
 
 ---
 
@@ -112,12 +248,15 @@ uv run python src/main.py
 
 | Comando | Qué hace |
 |---|---|
-| `uv run python src/main.py` | Escucha el atajo `Ctrl+Shift+E` |
-| `uv run python src/main.py --modo ia` | Igual, pero **corrige de verdad** con Gemini |
+| `uv run python src/main.py` | Escucha los tres atajos, con la bandeja activa |
+| `uv run python src/main.py --modo ia` | **Corrige de verdad** con Gemini |
 | `uv run python src/main.py --once` | Una corrección sobre lo seleccionado y sale |
 | `uv run python src/main.py --once --mock-transform wrap` | Envuelve el texto en `«»` para ver dónde se escribió |
-| `uv run python src/main.py --bateria` | Mide el prompt contra la batería de frases, sin escribir nada |
+| `uv run python src/main.py --bateria` | Corre la batería de frases, sin escribir nada |
+| `uv run python src/main.py --bateria tilde --pausa 13` | Solo los casos `tilde`, con pausa para la cuota gratuita |
 | `uv run python src/main.py --diagnostico` | Informa qué ventana está en primer plano y qué adaptador usaría |
+| `uv run python src/main.py --sin-sonido` | Desactiva los tonos |
+| `uv run python src/main.py --version` | Versión |
 | `uv run python src/main.py -v` | Detalle en consola |
 
 `--diagnostico` es el primer comando para usar si algo falla: dice si la
@@ -127,15 +266,43 @@ aplicación está bloqueada (UIPI) y qué adaptador corresponde.
 
 ## Configuración
 
-Copiá `.env.example` a `.env` y ajustá lo que necesites. Todos los valores son
-opcionales.
+Hay dos sitios, y cada uno para algo distinto.
+
+### `%APPDATA%\g360-textofix\config.json` — lo que cambia el usuario
+
+Es lo que escribe el menú de la bandeja. Se arranca leyendo `.env` y después
+**este archivo manda**: lo que guardaste persiste entre sesiones.
+
+| Llave | Por defecto | Para qué |
+|---|---|---|
+| `hotkey_corregir` | `CTRL+SHIFT+E` | Atajo de corrección |
+| `hotkey_deshacer` | `CTRL+SHIFT+Z` | Atajo de deshacer |
+| `hotkey_rehacer` | `CTRL+SHIFT+R` | Atajo de rehacer |
+| `iniciar_con_windows` | `false` | Arranque automático |
+| `activo` | `true` | Arranca activo o desactivado |
+
+### `.env` — lo técnico, en la carpeta del proyecto
+
+Opcional, y pensado sobre todo para desarrollo.
 
 | Variable | Por defecto | Para qué |
 |---|---|---|
+| `GEMINI_API_KEY` | — | Clave de Gemini (solo si no hay clave DPAPI guardada) |
+| `GEMINI_MODEL` | `gemini-3.8-flash` | Modelo a usar |
+| `GEMINI_TIMEOUT_S` | `8` | Espera de la respuesta |
 | `TEXTOFIX_SOUND` | `true` | Desactiva los tonos (pruebas automatizadas) |
 | `TEXTOFIX_ENABLED` | `true` | Desactiva el corrector sin salir |
 | `TEXTOFIX_VERBOSE` | `false` | Detalle en consola |
 | `TEXTOFIX_CLIPBOARD_TIMEOUT_MS` | `400` | Espera al `Ctrl+C`. Subirlo ayuda en equipos lentos |
+
+### Dónde busca la clave, en orden
+
+1. **DPAPI** en `%APPDATA%\g360-textofix\clave.dat` — lo normal, y lo único que
+   funciona con el `.exe`.
+2. `GEMINI_API_KEY` del entorno o del `.env` — para desarrollo.
+
+Guardá la clave desde la bandeja (`Configurar clave API…`) y deja de depender
+del `.env`.
 
 ---
 
@@ -266,6 +433,7 @@ selección directamente).
 
 Sin esa comprobación, el corrector informaría éxito sin haber escrito nada, que
 es peor que fallar.
+
 - Word: nunca se reemplaza la marca de párrafo final, así que no se crean
   párrafos de más.
 
@@ -280,24 +448,27 @@ es peor que fallar.
 
 ---
 
-## Etapa 2: corrección con Gemini
+## Corrección con Gemini
 
-Activa la corrección real. Requiere:
+Se activa con `--modo ia` (o con el `.exe`, que lo detecta solo). Requiere:
 
-1. **Facturación activada** en tu proyecto de Google AI Studio.
-2. Copiar `.env.example` a `.env` y pegar tu `GEMINI_API_KEY`.
-3. `uv sync --extra ai`.
+1. Una clave de [Google AI Studio](https://aistudio.google.com/apikey).
+2. Pegarla en la bandeja (`Configurar clave API…`) o en `.env`.
 
-`iniciar.bat` detecta el `.env` y arranca solo en modo IA. Sin `.env`, arranca
-en modo demo como hasta ahora.
+### Cuota gratuita y de pago: lo que hay que saber
 
-### ⚠️ Por qué hace falta la facturación
+La cuota **gratuita** es cómoda para uso personal: unos 5 pedidos por minuto,
+suficiente para corregir a mano mientras trabajás. Con `--bateria` conviene
+poner `--pausa 13` para no quedarte sin cuota a mitad de medida.
 
-Los [términos de Gemini API](https://ai.google.dev/gemini-api/terms) dicen que en
-la cuota **gratuita** Google usa los textos enviados para mejorar sus productos
-y que **revisores humanos pueden leerlos**. En la cuota **de pago** no se usan
-para entrenar. Como el corrector se usa sobre correo, documentos y sistemas
-empresariales, corresponde la cuota de pago.
+Los [términos de Gemini API](https://ai.google.dev/gemini-api/terms) dicen que
+en la cuota gratuita Google usa los textos enviados para mejorar sus productos
+y que **revisores humanos pueden leerlos**. En la de pago no se usan para
+entrenar.
+
+**Para uso personal, la gratuita alcanza.** Si el corrector se va a usar sobre
+correo, documentos o sistemas de una empresa, **corresponde activar la
+facturación**: no por el límite de pedidos, sino por los términos.
 
 ### El idioma: español peruano
 
@@ -329,7 +500,7 @@ reformule, **no** se invente nada y que se respeten URLs, correos, SKU, rutas y
 saltos de línea. Los ejemplos van en ambos sentidos: qué corregir y qué no.
 
 Después del modelo, `guards.py` sigue haciendo su trabajo: si la respuesta
- came vacía, trae preámbulo, cambia las cifras o crece desmedidamente, **no se
+viene vacía, trae preámbulo, cambia las cifras o crece desmedidamente, **no se
 escribe nada**.
 
 ### Medir el prompt antes de confiar en él
@@ -359,14 +530,23 @@ g360-textofix/
 ├── pyproject.toml              # dependencias (uv)
 ├── iniciar.bat                 # lanzador
 ├── setup.bat                   # instala uv y dependencias
+├── textofix.spec               # PyInstaller: icono + datas
 ├── .env.example                # plantilla de configuración
+├── assets/
+│   └── g360-textofix.ico       # icono (generado por tools/)
 ├── src/
-│   ├── main.py                 # CLI y bucle del atajo
+│   ├── main.py                 # CLI, bandeja, estado y los tres atajos
 │   └── core/
 │       ├── config.py           # configuración por entorno
-│       ├── hotkey.py           # RegisterHotKey (sin admin)
+│       ├── perfil.py           # %APPDATA%: clave DPAPI, config.json, autostart
+│       ├── hotkey.py           # parser de atajos + escucha multi-atajo
+│       ├── estado.py           # activo/inactivo + búfer de deshacer (puro)
+│       ├── bandeja.py          # bandeja del sistema (pystray)
 │       ├── engine.py           # ciclo: leer -> corregir -> validar -> escribir
+│       ├── ai.py               # Gemini: prompt conservador, reintento en 429
 │       ├── guards.py           # validaciones (puro, sin Windows)
+│       ├── bateria.py          # ejecuta la batería contra el modelo
+│       ├── casos.py            # las frases de prueba (viven aquí, no en tests)
 │       ├── winapi.py           # Win32, SendInput, portapapeles, UIPI
 │       ├── feedback.py         # tonos (winsound, stdlib)
 │       ├── logsetup.py         # logging sin contenido
@@ -375,24 +555,29 @@ g360-textofix/
 │           ├── word.py         # Word por COM
 │           ├── excel.py        # Excel por COM
 │           └── generic.py      # UIA + portapapeles
-└── tests/
-    ├── test_guards.py          # tests de las guardas (puros)
-    ├── test_frases.py          # batería de frases (§5 del plan)
-    └── smoke_*.py              # pruebas de humo reales
+├── tests/
+│   ├── test_*.py               # tests puros (pytest)
+│   └── smoke_*.py              # pruebas de humo reales (a mano)
+└── tools/
+    └── generar_icono.py        # genera assets/g360-textofix.ico
 ```
+
+Las frases de prueba están en `src/core/casos.py` y **no** en `tests/`, para
+que `--bateria` funcione también dentro del `.exe`: PyInstaller no empaqueta
+la carpeta `tests/`.
 
 ---
 
 ## Testing
 
 ```powershell
-:: Tests unitarios (rápidos, sin Windows)
+:: Tests unitarios (rápidos, sin Windows salvo para los atajos)
 uv run pytest
 
 :: Pruebas de humo (abren ventanas reales y escriben en apps de verdad)
 uv run python tests/smoke_win32_edit.py    # selección completa, parcial, al final, sin selección
 uv run python tests/smoke_hilo.py          # el ciclo completo desde un hilo de trabajo
-uv run python tests/smoke_hotkey.py        # atajo global, sin ráfaga, cierre limpio
+uv run python tests/smoke_hotkey.py        # 3 atajos, cambio en caliente, sin ráfaga, cierre limpio
 uv run python tests/smoke_privacidad.py    # logs sin texto, portapapeles intacto
 uv run python tests/smoke_campo_entero.py  # el ultimo recurso y su guarda multilínea
 uv run --with flet python tests/smoke_flet.py  # app Flutter real (requiere flet)
@@ -407,6 +592,37 @@ pasan.
 
 `smoke_navegador.py` abre Chrome con un perfil aislado en una carpeta temporal, así
 que no toca tu perfil real ni otros navegadores abiertos.
+
+### Lo que `smoke_hotkey.py` cubre de verdad
+
+No comprueba que el parser devuelva lo esperado, que es fácil. Comprueba cosas
+que solo se ven con `RegisterHotKey` real:
+
+- los tres atajos se registran y cada pulsación dispara su acción;
+- cuatro pulsaciones seguidas producen **una** ejecución, no cuatro;
+- **cambiar un atajo en caliente**: el nuevo dispara sin reiniciar y el viejo
+  queda libre para que otra app lo pueda registrar;
+- cambiar a un atajo que ya usa otra acción se **rechaza**, y la acción
+  conserva su combinación original;
+- cerrar libera los atajos.
+
+### Un aviso sobre `smoke_hotkey.py` en sesiones no interactivas
+
+Si lo corrés desde un proceso con **integridad baja** (ciertos shells aislados,
+servicios, algunas sesiones remotas), la pulsación sintética no llega: Windows
+bloquea la inyección de teclas de un proceso de integridad baja hacia el
+escritorio interactivo. El registro de los atajos funciona igual —solo
+`RegisterHotKey`— pero el disparo no.
+
+Se puede ver con:
+
+```powershell
+uv run python -c "from core.winapi import _current_integrity; print(_current_integrity())"
+# 8192  -> Low: los atajos se registran, el disparo sintetico no llega
+# 12288 -> Medium: todo normal
+```
+
+Desde una consola normal del usuario (integridad Medium) el test corre completo.
 
 ---
 

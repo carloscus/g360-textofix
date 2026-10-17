@@ -203,15 +203,25 @@ def send_ctrl(key_vk: int) -> None:
 # --- Integridad (UIPI) -------------------------------------------------------
 
 
-def _integrity_level(sid) -> int:
-    """Extrae el IL (Mandatory Level RID) de un SID de integridad."""
+def _integrity_level(token) -> int:
+    """
+    Nivel de integridad del token, en el RID del SID de la etiqueta.
+
+    Ojo con lo que NO sirve: GetTokenInformation(TokenUser) devuelve el SID de
+    la cuenta, cuyo ultimo componente es el RID del usuario (1001, 1002...).
+    El nivel de integridad vive en la etiqueta mandatory, en un SID S-1-16-xxxx
+    (12288 medium, 16384 high). Usar el de la cuenta daba numeros que no
+    comparaban con nada y el control de UIPI no decedia nunca.
+    """
+    etiqueta = win32security.GetTokenInformation(token, win32security.TokenIntegrityLevel)
+    # pywin32 devuelve (SID, atributos). El SID es el de la etiqueta, S-1-16-xxxx.
+    sid = etiqueta[0] if isinstance(etiqueta, tuple) else etiqueta.Label.Sid
     return int(win32security.ConvertSidToStringSid(sid).split("-")[-1])
 
 
 def _current_integrity() -> int:
     token = win32security.OpenProcessToken(win32api.GetCurrentProcess(), win32con.TOKEN_QUERY)
-    user = win32security.GetTokenInformation(token, win32security.TokenUser)[0]
-    return _integrity_level(user[0])
+    return _integrity_level(token)
 
 
 def puede_inyectar(ctx: WindowContext) -> bool:
@@ -223,10 +233,12 @@ def puede_inyectar(ctx: WindowContext) -> bool:
     try:
         handle = win32api.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, ctx.pid)
         token = win32security.OpenProcessToken(handle, win32con.TOKEN_QUERY)
-        user = win32security.GetTokenInformation(token, win32security.TokenUser)[0]
-        return _integrity_level(user[0]) <= _current_integrity()
-    except Exception:
-        return True  # si no se puede determinar, se intenta igual
+        return _integrity_level(token) <= _current_integrity()
+    except Exception as exc:
+        # No se traga el error: si falla, el corrector intenta igualmente, pero
+        # al menos se ve en el log por que no se pudo determinar.
+        log.debug("no se pudo leer la integridad de %s: %s", ctx.process, exc)
+        return True
 
 
 # --- Portapapeles ------------------------------------------------------------

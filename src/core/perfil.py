@@ -181,6 +181,32 @@ def guardar_config(config: dict) -> None:
     ARCHIVO_CONFIG.write_text(json.dumps(limpio, indent=2, ensure_ascii=False), encoding="utf-8")
 
 
+# El nombre de la accion no es la llave del config: separamos las dos cosas para
+# que el resto del codigo no tenga que saber como se llama el campo.
+_LLAVE_ATAJO = {
+    "corregir": "hotkey_corregir",
+    "deshacer": "hotkey_deshacer",
+    "rehacer": "hotkey_rehacer",
+}
+
+
+def guardar_atajo(accion: str, texto: str) -> None:
+    """
+    Persiste el atajo de una accion en el perfil.
+
+    El texto se guarda tal cual, ya normalizado por el parser. Si la accion no
+    tiene llave conocida se ignora en silencio: no hay nada que persistir.
+    """
+    llave = _LLAVE_ATAJO.get(accion)
+    if llave is None:
+        log.debug("accion %r sin llave de configuracion", accion)
+        return
+    config = leer_config()
+    config[llave] = texto.upper()
+    guardar_config(config)
+    log.info("atajo de %s guardado en el perfil: %s", accion, texto.upper())
+
+
 def ruta_perfil() -> Path:
     return DIR_PERFIL
 

@@ -21,12 +21,14 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from core.hotkey import (
+    MOD_ALT,
     MOD_CTRL,
     MOD_SHIFT,
     Atajo,
     EscuchaAtajos,
     describir_atajo,
     parsear_atajo,
+    user32,
 )
 from core.logsetup import setup_logging
 from core.winapi import send_hotkey
@@ -127,6 +129,60 @@ def main() -> int:
             print(f"  FALLO: {accion} no llego")
             fallos += 1
 
+    # --- Cambiar un atajo en caliente ----------------------------------------
+    # Es lo que hace el menu "Cambiar atajo...". El atajo nuevo tiene que
+    # disparar DESDE YA, sin reiniciar, y el viejo tiene que quedar libre.
+    # Se usa CTRL+ALT+P porque CTRL+ALT+R lo tiene otra app de esta maquina:
+    # probar con un atajo ocupado daria un falso negativo.
+    print("\n=== cambio en caliente ===")
+    nuevo = parsear_atajo("CTRL+ALT+P")
+    ok, motivo = escucha.cambiar("rehacer", nuevo)
+    print(f"  {'OK ' if ok else 'MAL'} cambiar rehacer -> {motivo}")
+    if not ok:
+        fallos += 1
+    else:
+        DISPAROS.clear()
+        EVENTO.clear()
+        send_hotkey(ord("P"), MOD_CTRL | MOD_ALT)
+        if _esperar("rehacer"):
+            print("  OK: el atajo nuevo dispara sin reiniciar")
+        else:
+            print("  MAL: el atajo nuevo no dispara")
+            fallos += 1
+
+        # El viejo debe quedar libre: si otro programa lo registra, tiene que
+        # poder. Si no lo libera, el cambio no sirvio de nada.
+        if user32.RegisterHotKey(None, 0xB3FF, MOD_CTRL | MOD_SHIFT | 0x4000, ord("R")):
+            print("  OK: el atajo viejo quedo libre")
+            user32.UnregisterHotKey(None, 0xB3FF)
+        else:
+            print("  MAL: el atajo viejo sigue tomado")
+            fallos += 1
+
+        ok, motivo = escucha.cambiar("rehacer", parsear_atajo("CTRL+SHIFT+R"))
+        if ok:
+            print("  OK: revertido al original")
+        else:
+            print(f"  MAL: no se pudo revertir: {motivo}")
+            fallos += 1
+
+    # --- Un atajo ocupado no deja a la accion sin nada -----------------------
+    # Aca el ocupado lo somos nosotros: "corregir" ya tiene CTRL+SHIFT+E.
+    print("\n=== cambio a un atajo ocupado ===")
+    ok, motivo = escucha.cambiar("deshacer", parsear_atajo("CTRL+SHIFT+E"))
+    print(f"  {'OK ' if not ok else 'MAL'} rechazado: {motivo}")
+    if ok:
+        fallos += 1
+    # Y "deshacer" debe seguir respondiendo a su combinacion original.
+    DISPAROS.clear()
+    EVENTO.clear()
+    send_hotkey(ord("Z"), MOD_CTRL | MOD_SHIFT)
+    if _esperar("deshacer"):
+        print("  OK: deshacer conserva su atajo original")
+    else:
+        print("  MAL: deshacer se quedo sin atajo")
+        fallos += 1
+
     # --- Repetir no apila ---------------------------------------------------
     print("\n=== una accion a la vez ===")
     conteo: list[str] = []
@@ -163,8 +219,7 @@ def main() -> int:
     try:
         segundo._registrar()
         print("  OK: los atajos quedan libres tras cerrar")
-        user32 = __import__("core.winapi", fromlist=["user32"])
-        user32.user32.UnregisterHotKey(None, 0xB361)
+        user32.UnregisterHotKey(None, 0xB361)
     except OSError as exc:
         print(f"  FALLO: los atajos quedaron tomados: {exc}")
         fallos += 1
