@@ -29,11 +29,13 @@ el texto corregido en el portapapeles del usuario.
 from __future__ import annotations
 
 import logging
+import time
 
 import uiautomation as auto
 
 from ..logsetup import LOGGER_NAME
 from ..winapi import (
+    clipboard_paste_into_app,
     clipboard_read,
     clipboard_soportado,
     clipboard_write,
@@ -284,6 +286,26 @@ class GenericAdapter:
             # framework deja de responder igual).
             escribir_por_teclado(capture.text, text)
             log.debug("escrito el campo completo por teclado")
+            return
+
+        via = capture.meta.get("via")
+
+        if via == "uia-text":
+            # La seleccion la devolvio UIA, que es la fuente fiable. Reverificar
+            # por portapapeles daria falsos negativos en apps cuyo Ctrl+C
+            # sintetico no funciona: el pane de lectura de Outlook es el caso
+            # claro, y ahi la lectura por UIA funciona bien pero el Ctrl+C no.
+            # Se vuelve a leer por UIA, que es lo coherente con como se leyo.
+            actual = self._read_uia()
+            if actual is not None and actual.text != capture.text:
+                raise RuntimeError("la seleccion cambio: no se escribe nada")
+
+            previo = clipboard_read()
+            if not clipboard_paste_into_app(text):
+                raise RuntimeError("no se pudo escribir en el portapapeles")
+            time.sleep(self.paste_settle_ms / 1000.0)
+            if previo is not None:
+                clipboard_write(previo)
             return
 
         # Si la lectura fue por UIA, el portapapeles todavia es del usuario y

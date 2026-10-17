@@ -58,6 +58,8 @@ ejecutar.
 | Chrome: `<textarea>` | ✅ | ✅ | Lee por `TextPattern`, sin pasar por portapapeles |
 | Chrome: `contenteditable` | ✅ | ✅ | Ídem |
 | **Flet / Flutter (campos)** | ✅ | ✅ | Sin `TextPattern` y sin `Ctrl+C`: corrige el campo entero |
+| **Outlook (redactar)** | ✅ UIA | ✅ | Corregir en la ventana de redacción |
+| **Outlook (bandeja)** | ✅ lectura | ❌ | El panel de lectura es **solo lectura**: no se puede pegar |
 | Word | ✅ COM | ✅ | Conserva párrafos y formato; no duplica párrafos |
 | Excel | ✅ COM | ✅ | Solo celdas de texto; fórmulas y números intactos |
 
@@ -67,7 +69,7 @@ Se dice explícitamente para no dar por bueno lo que no se probó:
 
 | Sin verificar | Por qué |
 |---|---|
-| **Outlook / correo** | La prueba automatizada escribiría en tu buzón real. La ruta técnica es la misma que el navegador (UIA → portapapeles), pero **no está confirmada**. Probalo a mano antes de confiar en él. |
+| **Outlook / correo** | La lectura por UIA está confirmada (el panel expone selección), pero **no se pudo automatizar la escritura** sin tocar un correo real. El panel de lectura de la bandeja es **solo lectura**: ahí no hay nada que hacer. Falta probar la ventana de redacción a mano. |
 | **ERP (Centura)** | No se automatizó por riesgo de tocar datos reales de negocio. Además suele **correrse como administrador**: si es el caso, el corrector detecta el bloqueo (UIPI) y avisa con tono grave, pero no puede corregirlo. Habría que lanzarlo elevated. |
 | **Other navegadores** | Solo Chrome. Brave, Firefox y Edge comparten tecnología pero no se probaron. |
 | **Consolas / terminal** | Sin verificar. |
