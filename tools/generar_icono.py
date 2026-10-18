@@ -1,18 +1,25 @@
 """
 Genera el icono de g360-textofix.
-Chevron > verde sobre fondo oscuro.
+Marca G360 (3 puntos + chevron) sobre fondo oscuro.
 
-SVG original: viewBox="0 0 20 20", polyline points="6 4 14 10 6 16"
+Adaptacion cuadrada de logo-g360.svg (g360-ventas-pulse/static):
+  <circle cx=20 cy=20 r=5 fill=gris />
+  <circle cx=20 cy=40 r=5 fill=verde glow />
+  <circle cx=20 cy=60 r=5 fill=gris />
+  <path d="M45 20 L 65 40 L 45 60" stroke=verde stroke-width=6 glow />
+El texto "G360 BY CCUSI" se omite: ilegible a tamano de bandeja (16 px).
 """
 
 from __future__ import annotations
+
 from pathlib import Path
-from PIL import Image, ImageDraw
+
+from PIL import Image, ImageDraw, ImageFilter
 
 FONDO = (11, 18, 32, 255)
 VERDE = (0, 208, 132, 255)
+GRIS = (148, 163, 184, 255)  # #94a3b8, mismo gris del logo
 TAM = 256
-S = TAM / 20.0  # 1 unidad SVG = 12.8 px
 
 
 def dibujar() -> Image.Image:
@@ -20,27 +27,37 @@ def dibujar() -> Image.Image:
     d = ImageDraw.Draw(im)
     d.rounded_rectangle([0, 0, TAM - 1, TAM - 1], radius=int(TAM * 0.2), fill=FONDO)
 
-    # El SVG usa stroke-width=2 en un viewBox de 20 unidades.
-    # Proporcion: 2/20 = 10% del tamano del canvas.
-    # PERO: en un angulo de 106 grados, 10% hace que las dos lineas
-    # se superpongan cerca de la punta. 6% es lo maximo que se puede
-    # usar sin que se fusionen en un trapecio.
+    # Proporcion del logo: stroke-width 6 en viewBox 70 de alto = 8.6%.
+    # En cuadrado con puntos a la izquierda hay mas aire que en el chevron
+    # solo, pero 6% sigue siendo lo maximo sin que la punta se fusione.
     grosor = int(0.06 * TAM)  # 15 px en 256
 
-    # Puntos del SVG
-    p1 = (int(6 * S), int(4 * S))  # (76, 51)
-    p2 = (int(14 * S), int(10 * S))  # (179, 128)
-    p3 = (int(6 * S), int(16 * S))  # (76, 204)
+    # Marca centrada: puntos en x=82, chevron de 126 a 178.
+    radio = 12  # logo: r=5 vs stroke 6 -> radio ~ 0.83 * grosor
+    puntos_y = [80, 128, 176]
+    chevron = [(126, 80), (178, 128), (126, 176)]
 
-    # Dibujar como poligono ABIERTO (no cerrado) para que no se rellene
-    puntos = [p1, p2, p3]
-    d.line(puntos, fill=VERDE, width=grosor, joint="curve")
+    # Glow suave del elemento verde, como el filtro feGaussianBlur del SVG.
+    glow = Image.new("RGBA", (TAM, TAM), (0, 0, 0, 0))
+    gd = ImageDraw.Draw(glow)
+    gd.ellipse([82 - radio, puntos_y[1] - radio, 82 + radio, puntos_y[1] + radio], fill=VERDE)
+    gd.line(chevron, fill=VERDE, width=grosor, joint="curve")
+    glow = glow.filter(ImageFilter.GaussianBlur(6))
+    im = Image.alpha_composite(im, glow)
+
+    # Formas nítidas encima del glow.
+    d = ImageDraw.Draw(im)
+    for i, cy in enumerate(puntos_y):
+        color = VERDE if i == 1 else GRIS
+        d.ellipse([82 - radio, cy - radio, 82 + radio, cy + radio], fill=color)
+    d.line(chevron, fill=VERDE, width=grosor, joint="curve")
 
     return im
 
 
 def _ico(ruta: Path, im: Image.Image) -> None:
-    import io, struct
+    import io
+    import struct
 
     blobs = []
     for tam in [16, 20, 24, 32, 48, 64, 128, 256]:
@@ -57,15 +74,21 @@ def _ico(ruta: Path, im: Image.Image) -> None:
     ruta.write_bytes(struct.pack("<HHH", 0, 1, len(blobs)) + b"".join(entradas) + b"".join(blobs))
 
 
-def principal():
+def principal(destino: Path | None = None) -> None:
     raiz = Path(__file__).resolve().parents[1]
-    dest = raiz / "assets" / "g360-textofix.ico"
+    dest = destino or (raiz / "assets" / "g360-textofix.ico")
     dest.parent.mkdir(parents=True, exist_ok=True)
     im = dibujar()
-    _ico(dest, im)
-    im.save(dest.with_suffix(".png"))
+    if dest.suffix.lower() == ".png":
+        im.save(dest)
+    else:
+        _ico(dest, im)
+        im.save(dest.with_suffix(".png"))
     print(f"icono: {dest}")
 
 
 if __name__ == "__main__":
-    principal()
+    import sys
+
+    arg = Path(sys.argv[1]) if len(sys.argv) > 1 else None
+    principal(arg)
