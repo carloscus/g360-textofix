@@ -43,10 +43,10 @@ deshacer/rehacer, atajos configurables en caliente, y se empaqueta en un
 
 | Situación | Qué pasa |
 |---|---|
-| Hay texto seleccionado y se corrige | Se reemplaza en el lugar. Tono agudo. |
-| El texto ya estaba bien | No se toca nada. Tono agudo. |
-| No hay nada seleccionado | No se toca nada. Tono medio. |
-| Algo falla (red, respuesta inválida, app protegida) | El original queda intacto. Tono grave. |
+| Hay texto seleccionado y se corrige | Se reemplaza en el lugar. Aviso de OK (dos notas ascendentes). |
+| El texto ya estaba bien | No se toca nada. Aviso de OK. |
+| No hay nada seleccionado | No se toca nada. Aviso suave de sin selección. |
+| Algo falla (red, respuesta inválida, app protegida) | El original queda intacto. Golpe grave de error. |
 
 Se equivocó y querés volver atrás: `Ctrl + Shift + Z`. Lo querés reponer:
 `Ctrl + Shift + R`.
@@ -228,6 +228,20 @@ uv run python -m nuitka --onefile --windows-console-mode=disable `
 **No se embebe ninguna clave.** Cada usuario introduce la suya la primera vez y
 se guarda cifrada en su `%APPDATA%\g360-textofix\`. El ejecutable no lleva
 secretos, así que puede repartirse libremente.
+
+### Arranca en segundo plano (sin ventana de consola)
+
+El `.exe` **no abre consola**: vive en la bandeja. Cuando hace falta
+interactuar se comporta así:
+
+- **Llegado desde un terminal** (cmd/PowerShell): `--probar-api`,
+  `--bateria` y los logs imprimen en **tu terminal** (se engancha a ella).
+- **La bandeja pide algo** (clave o atajo): crea una **consola temporal**
+  visible —con la X deshabilitada para que no cierre el proceso— y se
+  cierra con `Enter` al terminar.
+- **Falta la clave y no hay terminal**: aparece un **popup de Windows**
+  ofreciendo abrir la consola para pegarla (o se configura después desde
+  la bandeja).
 
 ### Dónde guarda cada cosa
 
@@ -588,12 +602,14 @@ g360-textofix/
 ├── textofix.spec               # PyInstaller: icono + datas
 ├── .env.example                # plantilla de configuración
 ├── assets/
-│   └── g360-textofix.ico       # icono (generado por tools/)
+│   ├── g360-textofix.ico       # icono (generado por tools/)
+│   └── sonidos/                # avisos WAV (generados por tools/)
 ├── src/
 │   ├── main.py                 # CLI, bandeja, estado y los tres atajos
 │   └── core/
 │       ├── config.py           # configuración por entorno
 │       ├── perfil.py           # %APPDATA%: clave DPAPI, config.json, autostart
+│       ├── consola.py          # consola bajo demanda (arranca sin ventana)
 │       ├── hotkey.py           # parser de atajos + escucha multi-atajo
 │       ├── estado.py           # activo/inactivo + búfer de deshacer (puro)
 │       ├── bandeja.py          # bandeja del sistema (pystray)
@@ -606,7 +622,7 @@ g360-textofix/
 │       ├── bateria.py          # ejecuta la batería contra el modelo
 │       ├── casos.py            # las frases de prueba (viven aquí, no en tests)
 │       ├── winapi.py           # Win32, SendInput, portapapeles, UIPI
-│       ├── feedback.py         # tonos (winsound, stdlib)
+│       ├── feedback.py         # avisos WAV (synth propia, winsound async)
 │       ├── logsetup.py         # logging sin contenido
 │       └── adapters/
 │           ├── base.py         # contrato
@@ -617,7 +633,8 @@ g360-textofix/
 │   ├── test_*.py               # tests puros (pytest)
 │   └── smoke_*.py              # pruebas de humo reales (a mano)
 └── tools/
-    └── generar_icono.py        # genera assets/g360-textofix.ico
+    ├── generar_icono.py        # genera assets/g360-textofix.ico
+    └── generar_sonidos.py      # genera assets/sonidos/*.wav
 ```
 
 Las frases de prueba están en `src/core/casos.py` y **no** en `tests/`, para
