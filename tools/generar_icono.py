@@ -1,6 +1,8 @@
 """
 Genera el icono de g360-textofix.
-Un chevron > verde sobre fondo oscuro.
+Chevron > verde sobre fondo oscuro.
+
+SVG original: viewBox="0 0 20 20", polyline points="6 4 14 10 6 16"
 """
 
 from __future__ import annotations
@@ -10,28 +12,29 @@ from PIL import Image, ImageDraw
 FONDO = (11, 18, 32, 255)
 VERDE = (0, 208, 132, 255)
 TAM = 256
+S = TAM / 20.0  # 1 unidad SVG = 12.8 px
 
 
 def dibujar() -> Image.Image:
     im = Image.new("RGBA", (TAM, TAM), (0, 0, 0, 0))
     d = ImageDraw.Draw(im)
-    d.rounded_rectangle([0, 0, TAM - 1, TAM - 1], radius=int(TAM * 0.25), fill=FONDO)
+    d.rounded_rectangle([0, 0, TAM - 1, TAM - 1], radius=int(TAM * 0.2), fill=FONDO)
 
-    # Chevron mas grande y delgado
-    grosor = 10
+    # El SVG usa stroke-width=2 en un viewBox de 20 unidades.
+    # Proporcion: 2/20 = 10% del tamano del canvas.
+    # PERO: en un angulo de 106 grados, 10% hace que las dos lineas
+    # se superpongan cerca de la punta. 6% es lo maximo que se puede
+    # usar sin que se fusionen en un trapecio.
+    grosor = int(0.06 * TAM)  # 15 px en 256
 
-    # Coordenadas corregidas para que se vea la V
-    # Punto izquierdo arriba
-    x1, y1 = 60, 70
-    # Punto derecho centro
-    x2, y2 = 200, 128
-    # Punto izquierdo abajo
-    x3, y3 = 60, 186
+    # Puntos del SVG
+    p1 = (int(6 * S), int(4 * S))  # (76, 51)
+    p2 = (int(14 * S), int(10 * S))  # (179, 128)
+    p3 = (int(6 * S), int(16 * S))  # (76, 204)
 
-    # Linea superior
-    d.line([(x1, y1), (x2, y2)], fill=VERDE, width=grosor)
-    # Linea inferior
-    d.line([(x2, y2), (x3, y3)], fill=VERDE, width=grosor)
+    # Dibujar como poligono ABIERTO (no cerrado) para que no se rellene
+    puntos = [p1, p2, p3]
+    d.line(puntos, fill=VERDE, width=grosor, joint="curve")
 
     return im
 
