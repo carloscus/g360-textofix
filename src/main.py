@@ -341,8 +341,10 @@ def main(argv: list[str] | None = None) -> int:
         _prov = _etiqueta_prov(seleccion_proveedor())
         if _prov == "ollama":
             log.info("MODO IA local: corrige con Ollama, sin cuota, sin red.")
+        elif _prov == "nvidia":
+            log.info("MODO IA nube NVIDIA: 90b local-remoto, sin limite de cuota.")
         else:
-            log.info("MODO IA por la nube: se corrige con Gemini. Cada correccion consume cuota.")
+            log.info("MODO IA por la nube: se corrige con Gemini (5 pedidos/min en cuota gratis).")
     else:
         log.warning(
             "MODO SIMULADO: el texto se devuelve SIN corregir. Para corregir de verdad: --modo ia"
