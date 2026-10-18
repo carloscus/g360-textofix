@@ -38,6 +38,24 @@ _PREAMBLES = (
     "resultado",
 )
 
+# Frases de rechazo conversacional: el modelo chico a veces "charla" en vez
+# de corregir ("Lo siento, pero no puedo cumplir con esa solicitud."). Esto
+# NO es una correccion: si entra en el texto, pisa lo que el usuario escribio
+# con una disculpa. Se busca en TODO el texto, no solo al principio, porque
+# puede venir mezclada con el texto corregido.
+_RECHAZOS_CONVERSACIONALES = (
+    "lo siento",
+    "perdón",
+    "perdon,",
+    "disculpa",
+    "no puedo cumplir",
+    "no puedo ayudar",
+    "no puedo continuar",
+    "como modelo de lenguaje",
+    "como modelo de ia",
+    "no tengo la capacidad",
+)
+
 _DIGITS = re.compile(r"\d+")
 _WHITESPACE = re.compile(r"\s+")
 
@@ -89,6 +107,19 @@ def validate(original: str, candidate: str | None) -> Verdict:
 
     if _looks_like_preamble(candidate):
         return Verdict(False, False, "preambulo-en-respuesta")
+
+    # Rechazo conversacional en cualquier parte del texto: el modelo chico
+    # puede mezclar una disculpa con el texto "corregido", y esa mezcla pasa
+    # la guarda de longitud (una disculpa corta entra en el rango 30%-200%).
+    # Solo cuenta si la frase NO estaba en el original: un correo legitimo
+    # que dice 'lo siento por la demora' no se bloquea por corregirse.
+    candidato_bajo = normalize(candidate)
+    original_bajo = normalize(original)
+    if any(
+        frase in candidato_bajo and frase not in original_bajo
+        for frase in _RECHAZOS_CONVERSACIONALES
+    ):
+        return Verdict(False, False, "respuesta-conversacional")
 
     ratio = len(candidate) / len(original)
     if ratio > MAX_LENGTH_RATIO:

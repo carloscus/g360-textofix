@@ -6,10 +6,9 @@ sabe que proveedor usa: solo llama `proovedor.corregir(texto)`.
 
 El default depende de que este disponible:
 
-- Si Ollama esta corriendo con el modelo descargado, se usa Ollama:
-  offline, sin cuota, privado.
-- Si no, se usa Gemini: el original, por la nube.
-- Ni Ollama ni Gemini: se arranca en modo mock y se avisa.
+- Con clave de NIM, la nube grande manda (el 3B local a veces "charla").
+- Sin clave de NIM, Ollama local si esta corriendo (offline, sin cuota).
+- Sin NIM ni Ollama, Gemini; sin nada, modo mock y aviso.
 
 Eso hace que el primer arranque del .exe no dependa de nada: si el usuario
 no tiene Ollama, sigue funcionando con la clave de Gemini.
@@ -78,10 +77,15 @@ def seleccion_proveedor() -> ProveedorIA:
         log.info("proovedor: gemini por la nube")
         return prov
 
-    # No se pidio nada explicito: se mira Ollama primero y, si no esta,
-    # se cae al proveedor de nube con clave. El usuario no tiene que
-    # configurar nada para que funcione: si tiene Ollama, lo usa; si no,
-    # usa la nube.
+    # No se pidio nada explicito. El orden lo dicta la confiabilidad, no la
+    # velocidad: el 3B local es rapido pero a veces "charla" y hasta llego a
+    # escribir una disculpa en lugar del texto. Si hay clave de NIM, la nube
+    # grande manda; el local queda como opt-in con PROVEEDOR_IA=ollama.
+    nim = _nuevo_nim()
+    if nim.disponible()[0]:
+        log.info("clave de NIM disponible: se usa la nube (%s)", nim.modelo)
+        return nim
+    log.info("sin clave de NIM: se prueba Ollama local")
     ollama = _nuevo_ollama()
     if ollama._ollama_arriba():
         log.info("Ollama detectado: se usa el proovedor local")
