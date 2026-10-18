@@ -1,9 +1,9 @@
 """
 Bandeja del sistema.
 
-Menu corto a proposito: estado, deshacer/rehacer, cambiar atajo, clave de API,
-inicio automatico y salir. Nada mas, porque una bandeja con veinte opciones es
-una bandeja que nadie usa.
+Menu corto a proposito: estado, deshacer/rehacer, cambiar atajo, claves de API
+(Gemini y NVIDIA), inicio automatico y salir. Nada mas, porque una bandeja con
+veinte opciones es una bandeja que nadie usa.
 
 pystray corre su propio bucle, asi que se arranca "detached": el hilo principal
 queda libre para el bucle de mensajes de los atajos, que es el que de verdad
@@ -22,9 +22,11 @@ from PIL import Image
 from .logsetup import LOGGER_NAME
 from .perfil import (
     guardar_clave_api,
+    guardar_clave_nim,
     hay_clave_api,
     iniciar_con_windows,
     leer_clave_api,
+    leer_clave_nim,
     quitar_inicio_con_windows,
     ruta_perfil,
     tiene_inicio_con_windows,
@@ -116,7 +118,8 @@ class Bandeja:
             ),
             pystray.Menu.SEPARATOR,
             pystray.MenuItem("Cambiar atajo...", self._cambiar_atajo),
-            pystray.MenuItem("Configurar clave API...", self._configurar_clave),
+            pystray.MenuItem("Clave API Gemini...", self._configurar_clave),
+            pystray.MenuItem("Clave API NVIDIA...", self._configurar_clave_nim),
             pystray.MenuItem(
                 "Iniciar con Windows",
                 self._alternar_autostart,
@@ -154,9 +157,33 @@ class Bandeja:
         self.refrescar()
 
     def _configurar_clave(self, *_):
-        print("\n[g360-textofix] Clave de la API de Gemini")
+        from .ping import probar_gemini
+
+        self._pedir_clave(
+            "Gemini",
+            "https://aistudio.google.com/apikey",
+            leer_clave_api,
+            guardar_clave_api,
+            probar=probar_gemini,
+        )
+
+    def _configurar_clave_nim(self, *_):
+        from .ping import probar_nvidia
+
+        self._pedir_clave(
+            "NVIDIA NIM",
+            "https://build.nvidia.com (Generate API Key)",
+            leer_clave_nim,
+            guardar_clave_nim,
+            probar=probar_nvidia,
+        )
+
+    def _pedir_clave(self, nombre: str, donde: str, leer, guardar, probar=None):
+        """Pide una clave por consola, la guarda cifrada (DPAPI) y la verifica."""
+        print(f"\n[g360-textofix] Clave de la API de {nombre}")
+        print(f"Pedila en {donde}")
         print(f"Se guarda cifrada en: {ruta_perfil()}")
-        actual = leer_clave_api()
+        actual = leer()
         if actual:
             print("Ya hay una clave guardada. Pega la nueva o ENTER para dejarla.")
         try:
@@ -168,10 +195,19 @@ class Bandeja:
             print("Se deja la clave como estaba.")
             return
         try:
-            guardar_clave_api(nueva)
+            guardar(nueva)
             print("Clave guardada (cifrada).")
         except OSError as exc:
             print(f"No se pudo guardar: {exc}")
+            self.refrescar()
+            return
+        if probar is not None:
+            # Una llamada minima ahora, no en la primera correccion: una clave
+            # mala se entiende aqui, con el diagnostico (401, 404, 429).
+            from .ping import imprimir
+
+            print("Verificando con una llamada real...")
+            imprimir(probar(nueva))
         self.refrescar()
 
     def _cambiar_atajo(self, *_):

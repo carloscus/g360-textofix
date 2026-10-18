@@ -118,12 +118,18 @@ class CorrectorIA:
 
     def __init__(
         self,
-        modelo: str = MODELO_POR_DEFECTO,
+        modelo: str | None = None,
         timeout_s: int = 8,
         api_key: str | None = None,
+        reintentos: int = 2,
     ):
-        self.modelo = modelo
+        # El modelo puede venir de tres lados, en orden: el dado explicitamente
+        # (--modelo), GEMINI_MODEL del entorno/.env, o el default rapido.
+        self.modelo = modelo or os.environ.get("GEMINI_MODEL") or MODELO_POR_DEFECTO
         self.timeout_s = timeout_s
+        # Reintentos por cuota (429). El corrector espera y reintenta; el
+        # ping (`reintentos=0`) prefiere reportar el 429 de inmediato.
+        self.reintentos = reintentos
         self._api_key = api_key
         self._cliente = None
 
@@ -214,10 +220,12 @@ class CorrectorIA:
 
         La cuota gratuita permite 5 peticiones por minuto. La de pago es mucho
         mayor, pero reintentar igual hace que la herramienta sirva en los dos
-        casos sin cambiar el codigo.
+        casos sin cambiar el codigo. `reintentos=0` (el ping) no espera nunca:
+        prefiere reportar el 429 de una.
         """
         espera = 0
-        for intento in range(3):
+        intentos = self.reintentos + 1
+        for intento in range(intentos):
             try:
                 return cliente.models.generate_content(
                     model=self.modelo,
@@ -225,7 +233,7 @@ class CorrectorIA:
                     config=config,
                 )
             except Exception as exc:
-                if not _es_cuota(exc) or intento == 2:
+                if not _es_cuota(exc) or intento == intentos - 1:
                     raise CuotaAgotada(_mensaje_de_cuota(exc)) from exc
                 # El retry-delay puede venir en segundos o milisegundos.
                 # Para un corrector, 110 minutos de espera congelado es
@@ -233,7 +241,10 @@ class CorrectorIA:
                 # el atajo de nuevo cuando el contador renueve.
                 espera = min(_espera_sugerida(exc) or 15, 120)
                 log.warning(
-                    "cuota alcanzada: se reintenta en %ds (intento %d/2)", espera, intento + 1
+                    "cuota alcanzada: se reintenta en %ds (intento %d/%d)",
+                    espera,
+                    intento + 1,
+                    self.reintentos,
                 )
                 time.sleep(espera)
         raise RuntimeError("no se llego a hacer la consulta")

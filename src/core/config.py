@@ -32,6 +32,15 @@ def _env_int(name: str, default: int) -> int:
         return default
 
 
+def _dir_base() -> Path:
+    """El directorio del .exe, o la raiz del proyecto en desarrollo."""
+    import sys
+
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).parent
+    return Path(__file__).resolve().parents[2]
+
+
 def cargar_dotenv(ruta: Path | None = None) -> bool:
     """
     Lee un .env sencillo y lo pasa al entorno.
@@ -39,8 +48,25 @@ def cargar_dotenv(ruta: Path | None = None) -> bool:
     A proposito no se usa python-dotenv: son seis lineas y asi el proyecto no
     gana una dependencia solo para leer la clave. Las variables ya presentes en
     el entorno tienen prioridad, que es lo esperable.
+
+    Sin ruta explicita se buscan, en orden: el .env del directorio de trabajo,
+    el que esta junto al .exe (o a la raiz del proyecto en desarrollo) y el
+    del perfil en %APPDATA%. Un acceso directo lanza el programa con un cwd
+    que no es el suyo: sin esa lista el autodetect fallaria en silencio.
     """
-    ruta = ruta or (Path.cwd() / ".env")
+    if ruta is not None:
+        return _cargar_en(ruta)
+
+    from .perfil import DIR_PERFIL
+
+    for candidata in (Path.cwd() / ".env", _dir_base() / ".env", DIR_PERFIL / ".env"):
+        if candidata.exists():
+            return _cargar_en(candidata)
+    return False
+
+
+def _cargar_en(ruta: Path) -> bool:
+    """Carga `ruta` en el entorno. False si no existe o no se pudo leer."""
     if not ruta.exists():
         return False
 

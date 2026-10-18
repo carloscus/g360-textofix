@@ -32,7 +32,8 @@ from core.perfil import ruta_perfil
 VERSION = "1.0.0"
 APP_NAME = "g360-textofix"
 
-# Modos de correccion: `mock` no usa IA, `ia` llama a Gemini.
+# Modos de correccion: `mock` no usa IA, `ia` corrige con el proveedor
+# de nube elegido (NVIDIA NIM o Gemini).
 MODO_MOCK = "mock"
 MODO_IA = "ia"
 
@@ -63,6 +64,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--bateria",
         action="store_true",
         help="Corrige la bateria de frases de prueba y muestra el resultado, sin escribir nada.",
+    )
+    parser.add_argument(
+        "--probar-api",
+        action="store_true",
+        help=(
+            "Verifica cada nube con UNA llamada minima (clave, modelo y red) "
+            "e imprime el resultado. Sale 0 si al menos una quedo usable."
+        ),
     )
     parser.add_argument(
         "--filtro",
@@ -96,9 +105,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--modelo",
         default=None,
         help=(
-            "Modelo de Gemini a usar (default: gemini-2.5-flash-lite, el mas rapido). "
-            "Opciones de la capa gratuita: gemini-2.5-flash-lite, gemini-2.5-flash, "
-            "gemini-2.0-flash, gemini-1.5-flash."
+            "Modelo a usar sobre el default del proveedor elegido. Sin esto "
+            "cada nube usa el suyo: GEMINI_MODEL (default gemini-2.5-flash-lite) "
+            "o NIM_MODEL (default nvidia/nemotron-3-super-120b-a12b)."
         ),
     )
     parser.add_argument("--sin-sonido", action="store_true", help="Desactiva los tonos.")
@@ -129,70 +138,109 @@ def _install_console_handler(listener) -> None:
     ctypes.WinDLL("kernel32", use_last_error=True).SetConsoleCtrlHandler(_handler, 1)
 
 
+def _hay_alguna_clave() -> bool:
+    """Si hay clave de Gemini o de NVIDIA, en el almacen o en el entorno."""
+    from core.perfil import leer_clave_api, leer_clave_nim
+
+    return bool(
+        leer_clave_api()
+        or os.environ.get("GEMINI_API_KEY")
+        or leer_clave_nim()
+        or os.environ.get("NIM_API_KEY")
+    )
+
+
+def _pedir_claves() -> bool:
+    """
+    Pide por consola las claves que falten. Devuelve si quedo algo usable.
+
+    Autodetect primero (.env, entorno, almacen cifrado) y solo si NO hay
+    ninguna clave se abre la consola. Cualquier ENTER omite una clave: con
+    una sola alcanza para que el corrector funcione.
+    """
+    from core.perfil import guardar_clave_api, guardar_clave_nim, leer_clave_api, leer_clave_nim
+    from core.ping import imprimir, probar_gemini, probar_nvidia
+
+    print("\n[g360-textofix] No se detecto ninguna clave de API.")
+    print("Las dos son opcionales: con una alcanza. ENTER para omitir.\n")
+
+    if not leer_clave_api():
+        print("[1/2] Gemini: pedila en https://aistudio.google.com/apikey")
+        print(f"Se guarda cifrada en: {ruta_perfil()}")
+        try:
+            clave = input("Clave Gemini (pegala con Ctrl+V): ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print("\nCancelado.")
+            return False
+        if clave:
+            try:
+                guardar_clave_api(clave)
+                print("Clave de Gemini guardada (cifrada). Verificando...")
+                imprimir(probar_gemini(clave))
+                print()
+            except OSError as exc:
+                print(f"No se pudo guardar la clave de Gemini: {exc}\n")
+
+    if not leer_clave_nim():
+        print("[2/2] NVIDIA NIM: pedila en https://build.nvidia.com (Generate API Key)")
+        try:
+            clave = input("Clave NVIDIA (pegala con Ctrl+V): ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print("\nCancelado.")
+            return False
+        if clave:
+            try:
+                guardar_clave_nim(clave)
+                print("Clave de NVIDIA guardada (cifrada). Verificando...")
+                imprimir(probar_nvidia(clave))
+            except OSError as exc:
+                print(f"No se pudo guardar la clave de NVIDIA: {exc}")
+
+    return True
+
+
 def _asegurar_clave() -> bool:
     """
-    Comprueba que haya un proveedor de IA disponible, y pide la clave si hace falta.
+    Comprueba que haya un proveedor de IA disponible, y pide las claves si no.
 
-    Solo hay que pedir la clave cuando se usa Gemini. Ollama es local y no
-    necesita clave: si el modelo no esta descargado, se pide que lo haga con
-    `ollama pull`.
+    El orden es: autodetect (.env, entorno, almacen cifrado de Windows) y,
+    solo si no hay NINGUNA clave, un prompt de consola con las dos. Si la
+    clave ya existe pero falta la dependencia, pedir clave no arregla nada:
+    se avisa y se sigue.
     """
-    from core.perfil import guardar_clave_api, hay_clave_api, leer_clave_api
-    from core.proovedor import es_gemini, seleccion_proveedor
+    from core.proovedor import seleccion_proveedor
 
     log = logging.getLogger(LOGGER_NAME)
 
     prov = seleccion_proveedor()
     listo, motivo = prov.disponible()
     if listo:
-        log.info("proovedor listo")
+        log.info("proveedor listo")
         return True
 
-    # Ollama no esta arriba o no tiene el modelo: se pide que lo descargue una vez.
-    # No se pide clave.
-    if not es_gemini(prov):
-        log.error(
-            "Ollama no disponible: %s. Descargalo de ollama.com y ejecuta: ollama pull llama3.2:3b",
-            motivo,
-        )
-        return False
-
-    # Gemini sin clave. Solo se puede pedir si hay quien pueda escribirla.
-    if "falta la clave" not in motivo or hay_clave_api() or sys.stdin is None or sys.stdin.closed:
+    if _hay_alguna_clave():
         log.error("modo IA no disponible: %s", motivo)
         return False
 
-    if not sys.stdin.isatty():
+    # Sin clave y sin quien pueda escribirla (exe lanzado sin consola): se
+    # avisa. El menu de la bandeja sigue siendo la via para configurarla.
+    if sys.stdin is None or sys.stdin.closed or not sys.stdin.isatty():
+        log.error("falta la clave de alguna API y no hay consola para pedirla")
+        return False
+
+    if not _pedir_claves():
+        return False
+
+    listo, motivo = seleccion_proveedor().disponible()
+    if not listo:
         log.error("modo IA no disponible: %s", motivo)
         return False
-
-    print("\n[g360-textofix] Falta la clave de la API de Gemini.")
-    print("Pedila en https://aistudio.google.com/apikey y pegala abajo.")
-    print(f"Se guarda cifrada en: {ruta_perfil()}\n")
-    try:
-        clave = input("Clave (pegala con Ctrl+V): ").strip()
-    except (EOFError, KeyboardInterrupt):
-        print("\nCancelado.")
-        return False
-
-    if not clave:
-        log.error("no se ingreso clave: modo IA no disponible")
-        return False
-
-    try:
-        guardar_clave_api(clave)
-    except OSError as exc:
-        log.error("no se pudo guardar la clave: %s", exc)
-        return False
-
-    log.info("clave guardada cifrada en el perfil")
-    from core.ai import CorrectorIA
-
-    return CorrectorIA(api_key=leer_clave_api()).disponible()[0]
+    log.info("proveedor listo")
+    return True
 
 
 def _clavedisponible() -> bool:
-    """Si hay un proveedor de IA disponible (Ollama o Gemini)."""
+    """Si hay un proveedor de IA disponible (NVIDIA o Gemini)."""
     from core.proovedor import seleccion_proveedor
 
     listo, _ = seleccion_proveedor().disponible()
@@ -214,6 +262,18 @@ def main(argv: list[str] | None = None) -> int:
 
         return ejecutar(args.filtro, args.pausa)
 
+    if args.probar_api:
+        from core.ping import imprimir, probar_todo
+
+        print("\n[g360-textofix] Verificacion de la API (1 llamada minima por proveedor)\n")
+        resultados = probar_todo()
+        for r in resultados:
+            imprimir(r)
+        if any(r["ok"] for r in resultados):
+            return 0
+        print("\nNingun proveedor quedo usable: revisa las claves o el .env.")
+        return 1
+
     if args.diagnostico:
         log.info("diagnostico: ventana activa en primer plano")
         detect_context()
@@ -229,7 +289,7 @@ def main(argv: list[str] | None = None) -> int:
             cfg,
             mode=modo,
             transform=args.mock_transform,
-            modelo=args.modelo or os.environ.get("GEMINI_MODEL") or None,
+            modelo=args.modelo or None,
         )
         log.info("resultado=%s adaptador=%s", outcome.reason, outcome.adapter or "-")
         return 0 if outcome.ok else 1
@@ -241,7 +301,7 @@ def main(argv: list[str] | None = None) -> int:
     # Un .exe sin clave no debe arrancar roto: baja a mock y avisa claro.
     # El .bat ya trae la clave, pero el .exe de otro usuario puede no tenerla.
     if modo == MODO_IA and not _clavedisponible():
-        log.warning("no hay clave de Gemini: se arranca en modo simulado")
+        log.warning("no hay clave de ninguna API: se arranca en modo simulado")
         modo = MODO_MOCK
 
     from core.bandeja import Bandeja
@@ -288,7 +348,7 @@ def main(argv: list[str] | None = None) -> int:
             cfg,
             mode=modo,
             transform=args.mock_transform,
-            modelo=args.modelo or os.environ.get("GEMINI_MODEL") or None,
+            modelo=args.modelo or None,
             al_corregir=lambda o, c, p: estado.registrar_correccion(
                 Correccion(proceso=p, original=o, corregido=c)
             ),
@@ -334,14 +394,11 @@ def main(argv: list[str] | None = None) -> int:
     log.info("  bandeja activa. Ctrl+C para salir.")
 
     if modo == MODO_IA:
-        # El proovedor es Ollama o Gemini: se mira en el log, no se asume.
         from core.proovedor import etiqueta as _etiqueta_prov
         from core.proovedor import seleccion_proveedor
 
         _prov = _etiqueta_prov(seleccion_proveedor())
-        if _prov == "ollama":
-            log.info("MODO IA local: corrige con Ollama, sin cuota, sin red.")
-        elif _prov == "nvidia":
+        if _prov == "nvidia":
             log.info("MODO IA nube NVIDIA: 90b local-remoto, sin limite de cuota.")
         else:
             log.info("MODO IA por la nube: se corrige con Gemini (5 pedidos/min en cuota gratis).")

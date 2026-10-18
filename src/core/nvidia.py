@@ -2,27 +2,26 @@
 Correccion con un modelo de la nube via NVIDIA NIM.
 
 NVIDIA NIM expone una API OpenAI-compatible: POST /v1/chat/completions.
-Es un proveedor de nube por defecto: corre modelos grandes (llama, mistral,
-nemotron) que entienden bien el prompt conservador del proyecto, y su
-cupo es mas generoso que el free tier de Gemini.
+Solo se usan modelos con endpoint gratuito que respondan de verdad: el
+listado /v1/models trae 81, pero varios devuelven 404 al llamarlos.
 
-- El texto SI sale de la maquina (va a la nube). Si la privacidad es el
-  motivo, usar Ollama local.
+Medicion del 18/10/2026 (5 casos de la bateria del proyecto, timeout 15s):
+
+    nvidia/nemotron-3-super-120b-a12b       4/5 OK, mediana 0.97s, max 1.34s
+    meta/llama-3.2-90b-vision-instruct      1/5 OK, 2-11s, colgados a 15s
+    nvidia/nemotron-3.5-lightning-30b-a3b   responde 4s pero no corrige y
+                                            se cuelga a ratos
+    z-ai/glm-5.3-flash                      si responde, ~58s: inviable
+    deepseek-ai/deepseek-v4.1-flash         no responde
+    mistral-7b, gemma-3-4b, granite-3b,
+    nemotron-51b                            listados pero 404
+
+Por eso el nemotron-super va PRIMERO (el mas rapido y el mejor puntaje) y
+el 90b queda como respaldo, con otra familia de modelo.
+
+Sobre el texto: SI sale de la maquina (va a la nube). Si la privacidad es el
+motivo, este proveedor no es para textos sensibles.
 - La clave se lee de NIM_API_KEY (o del almacen cifrado) y jamas se loguea.
-
-Sobre el modelo: se probaron las familias que quedan vivas en el catalogo
-2026 (los meta/llama-3.1 directos dieron 410 Gone, y no hay Qwen). El
-elegido fue meta/llama-3.2-90b-vision-instruct porque es el unico que
-corrige de verdad los casos dificiles:
-
-    'como se escribe si esta mal'  ->  '¿Cómo se escribe si está mal?'
-    'pidio un commodo'             ->  'pidió un comodato'
-
-nvidia/nemotron-3.5-lightning-30b-a3b responde en 0.5s pero no corrige
-nada (deja 'como' y 'comodo' tal cual): inutil para este proposito.
-El 90b se satura en horas pico (timeouts de 90-120s), asi que hay una
-cadena de respaldo con nvidia/nemotron-3-super-120b-a12b, que responde
-en 1-6s y corrige la mayoria (comodato si; el ¿? de 'como' no).
 """
 
 from __future__ import annotations
@@ -36,11 +35,12 @@ from .logsetup import LOGGER_NAME, describe
 log = logging.getLogger(LOGGER_NAME)
 
 URL_POR_DEFECTO = "https://integrate.api.nvidia.com/v1/chat/completions"
-MODELO_POR_DEFECTO = "meta/llama-3.2-90b-vision-instruct"
-# Respaldo interno: el 90b es el que mejor corrige pero se satura en horas
-# pico (timeouts de 120s). El nemotron-super responde en 1-6s y corrige la
-# mayoria. Si el primero no responde, se intenta el segundo.
-MODELOS_DE_REPALDO = ["nvidia/nemotron-3-super-120b-a12b"]
+MODELO_POR_DEFECTO = "nvidia/nemotron-3-super-120b-a12b"
+# Respaldo: otra familia por si el primero no responde o anda mal. En la
+# medicion el 90b responde en 2-11s cuando no se cuelga; su fama de "mejor
+# calidad" no se reprodujo (1/5 en la bateria, y reescribio el formato de
+# moneda S/ 4,500.00 -> S/ 4.500,00).
+MODELOS_DE_REPALDO = ["meta/llama-3.2-90b-vision-instruct"]
 
 
 class NIMCorrupta(RuntimeError):
@@ -55,13 +55,15 @@ class ProveedorNIM:
         modelo: str | None = None,
         url: str | None = None,
         api_key: str | None = None,
-        timeout_s: int = 120,
+        timeout_s: int = 15,
     ):
         self.modelo = modelo or os.environ.get("NIM_MODEL") or MODELO_POR_DEFECTO
         self.url = url or os.environ.get("NIM_URL") or URL_POR_DEFECTO
         self._api_key = api_key
-        # 120s: el 90b en horas pico tardo hasta 35s, y un timeout menor
-        # aborta correcciones que si iban a salir.
+        # 15s: en la medicion los buenos respondieron en <=11s (el super en
+        # ~1s) y a 15s se corta cualquier modelo colgado. Peor caso de la
+        # cadena (2 modelos): 30s, y despues el engine cae a Gemini. Con el
+        # viejo timeout de 120s ese peor caso eran 4 minutos.
         self.timeout_s = timeout_s
 
     # --- Configuracion ------------------------------------------------------
@@ -153,6 +155,10 @@ class ProveedorNIM:
                     exc.response.status_code,
                 )
                 ultimo_error = exc
+                if exc.response.status_code in (401, 403):
+                    # Clave mala: el respaldo usa la misma, no se gasta
+                    # otra llamada en comprobarlo.
+                    break
                 continue
 
             if mensaje is not None:
