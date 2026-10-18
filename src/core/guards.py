@@ -130,6 +130,13 @@ def validate(original: str, candidate: str | None) -> Verdict:
     if extract_digits(original) != extract_digits(candidate):
         return Verdict(False, False, "cifras-modificadas")
 
+    # Salto de pagina (Ctrl+Enter en Word, un caracter \x0c invisible que
+    # viaja dentro del texto seleccionado). Una correccion legitima nunca
+    # quita uno: si el modelo lo normalizo, el documento pierde la pagina
+    # en silencio y ninguna otra guarda lo nota.
+    if original.count(chr(12)) > candidate.count(chr(12)):
+        return Verdict(False, False, "salto-de-pagina-perdido")
+
     if normalize(original) == normalize(candidate):
         return Verdict(True, False, "sin-cambios")
 

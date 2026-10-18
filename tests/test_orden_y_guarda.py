@@ -135,3 +135,31 @@ def test_ollama_optin_explicito(monkeypatch):
 
     prov = prov_mod.seleccion_proveedor()
     assert prov_mod.etiqueta(prov) == "ollama"
+
+
+# --- Guarda de salto de pagina -----------------------------------------------
+# En Word, un salto de pagina (Ctrl+Enter) es un caracter \x0c invisible que
+# viaja dentro del texto seleccionado. Verificado con Word real: si el modelo
+# lo elimina, el documento pierde la pagina en silencio (2 paginas -> 1) y
+# ninguna otra guarda lo nota.
+
+
+def test_salto_de_pagina_perdido_se_rechaza():
+    original = "Primera pagina\r" + chr(12) + "\rSegunda pagina"
+    candidato = "Primera pagina\r\rSegunda pagina"  # el modelo se comio el salto
+    v = validate(original, candidato)
+    assert not v.ok
+    assert v.reason == "salto-de-pagina-perdido"
+
+
+def test_salto_de_pagina_preservado_se_permite():
+    original = "Primera pagina con errorr\r" + chr(12) + "\rSegunda pagina"
+    candidato = "Primera pagina con error.\r" + chr(12) + "\rSegunda pagina"
+    v = validate(original, candidato)
+    assert v.ok
+
+
+def test_sin_saltos_de_pagina_no_afecta():
+    """Un texto normal (sin saltos de pagina) no toca esta guarda."""
+    v = validate("El cliente pidio tres cajas", "El cliente pidió tres cajas.")
+    assert v.ok

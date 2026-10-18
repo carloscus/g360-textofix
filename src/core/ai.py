@@ -91,8 +91,9 @@ Reglas:
    "gasolina", "bus" no es "autobus", "celular" no es "movil". Si una palabra \
    no es un error de escritura, se deja como esta.
 7. Respeta intactos: URLs, correos, rutas de archivo, codigos, SKU, etiquetas \
-   como @menciones, hashtags, emoticonos, fechas (dd/mm/aaaa), montos con "S/" \
-   y saltos de linea.
+   como @menciones, hashtags, emoticonos, fechas (dd/mm/aaaa), montos con "S/", \
+   saltos de linea y saltos de pagina. Un caracter de salto de pagina (avance \
+   de formulario) debe quedar exactamente donde esta.
 8. Si el texto ya esta correcto, devuelvelo tal cual, sin commentary ni nota.
 9. Devuelve SOLO el texto corregido. Sin comillas, sin explicaciones, sin \
    "aqui tienes", sin listas y sin bloques de codigo.
