@@ -20,7 +20,7 @@ if errorlevel 1 (
 )
 
 echo [G360] Sincronizando dependencias...
-:: El extra ai trae google-genai (nube) y httpx (Ollama local y NVIDIA NIM).
+:: El extra ai trae google-genai (Gemini) y httpx (NVIDIA NIM).
 uv sync --extra ai
 if errorlevel 1 (
     echo [ERROR] No se pudieron instalar las dependencias.
@@ -30,8 +30,8 @@ if errorlevel 1 (
 
 echo.
 echo [G360] Atajos: Ctrl+Shift+E corregir / Z deshacer / R rehacer.
-echo [G360] Correccion: Ollama local si esta corriendo (sin cuota, sin red);
-echo [G360] si no, la nube (NVIDIA NIM o Gemini, la que tenga clave).
+echo [G360] Correccion: nube, NVIDIA NIM si hay clave, si no Gemini;
+echo [G360] si una falla, reintenta con la otra en el mismo pedido.
 echo [G360] Si los atajos no registran (error 1409), hay OTRA instancia
 echo [G360] corriendo: cerrala primero.
 echo [G360] Ctrl+C para salir.

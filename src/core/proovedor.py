@@ -4,14 +4,14 @@ Seleccion del proveedor de IA.
 El usuario elige por `.env` o por la bandeja. El resto del corrector no
 sabe que proveedor usa: solo llama `proovedor.corregir(texto)`.
 
-El default depende de que este disponible:
+Solo hay dos proveedores, ambos de nube (el texto SI sale de la maquina):
 
-- Con clave de NIM, la nube grande manda (el 3B local a veces "charla").
-- Sin clave de NIM, Ollama local si esta corriendo (offline, sin cuota).
-- Sin NIM ni Ollama, Gemini; sin nada, modo mock y aviso.
+- Con clave de NIM, la nube grande manda (el cupo es mas generoso).
+- Sin clave de NIM, Gemini con la suya.
+- Sin ninguna clave, se pide al arrancar o se avisa.
 
 Eso hace que el primer arranque del .exe no dependa de nada: si el usuario
-no tiene Ollama, sigue funcionando con la clave de Gemini.
+solo tiene la clave de Gemini, sigue funcionando.
 """
 
 from __future__ import annotations
@@ -37,8 +37,10 @@ class ProveedorIA(Protocol):
 
 
 PROVEEDOR_GEMINI = "gemini"
-PROVEEDOR_OLLAMA = "ollama"
 PROVEEDOR_NIM = "nvidia"
+# Ollama se retiro del proyecto; el valor queda solo para detectar el .env
+# viejo y avisar, en vez de fallar en silencio.
+PROVEEDOR_OLLAMA_LEGACY = "ollama"
 
 
 def seleccion_proveedor() -> ProveedorIA:
@@ -48,20 +50,14 @@ def seleccion_proveedor() -> ProveedorIA:
     El orden de decicion:
 
     1. El usuario pidio explicitamente uno en `PROVEEDOR_IA` (.env).
-    2. No pidio ninguno: si Ollama esta arriba, va Ollama (offline, sin
-       cuota, el texto no sale). Si no, el proveedor de nube con clave
-       disponible (NIM primero, Gemini despues).
+    2. No pidio ninguno: la nube con clave disponible (NIM primero,
+       Gemini despues).
     """
     elegido = os.environ.get("PROVEEDOR_IA", "").strip().lower()
 
-    if elegido == PROVEEDOR_OLLAMA:
-        prov = _nuevo_ollama()
-        listo, motivo = prov.disponible()
-        if not listo:
-            log.warning("Ollama no esta disponible: %s", motivo)
-            return _nube_o_mock()
-        log.info("proovedor: ollama local (%s)", prov.modelo)
-        return prov
+    if elegido == PROVEEDOR_OLLAMA_LEGACY:
+        log.warning("PROVEEDOR_IA=ollama ya no se soporta: se usa el default de nube")
+        return _nube_o_mock()
 
     if elegido == PROVEEDOR_NIM:
         prov = _nuevo_nim()
@@ -77,27 +73,8 @@ def seleccion_proveedor() -> ProveedorIA:
         log.info("proovedor: gemini por la nube")
         return prov
 
-    # No se pidio nada explicito. El orden lo dicta la confiabilidad, no la
-    # velocidad: el 3B local es rapido pero a veces "charla" y hasta llego a
-    # escribir una disculpa en lugar del texto. Si hay clave de NIM, la nube
-    # grande manda; el local queda como opt-in con PROVEEDOR_IA=ollama.
-    nim = _nuevo_nim()
-    if nim.disponible()[0]:
-        log.info("clave de NIM disponible: se usa la nube (%s)", nim.modelo)
-        return nim
-    log.info("sin clave de NIM: se prueba Ollama local")
-    ollama = _nuevo_ollama()
-    if ollama._ollama_arriba():
-        log.info("Ollama detectado: se usa el proovedor local")
-        return ollama
-    log.info("Ollama no detectado: se usa el proovedor de nube")
+    # No se pidio nada explicito: NIM si hay clave, si no Gemini.
     return _nube_o_mock()
-
-
-def _nuevo_ollama() -> ProveedorIA:
-    from .ollama import ProveedorOllama
-
-    return ProveedorOllama()
 
 
 def _nuevo_nim() -> ProveedorIA:
@@ -129,18 +106,20 @@ def _nube_o_mock() -> ProveedorIA:
     return _nuevo_gemini()
 
 
-def seleccion_nube() -> ProveedorIA:
+def otra_nube(prov: ProveedorIA) -> ProveedorIA | None:
     """
-    El proovedor de nube para la caida: NVIDIA NIM si tiene clave, si no
-    Gemini. Se usa cuando el proovedor local reviento o cuando las
-    guardas rechazaron la correccion local.
+    El OTRO proveedor de nube, si esta disponible; si no, None.
+
+    Es el reintento del fallback nube -> nube: si el proveedor elegido
+    revienta (red, cuota, clave invalida), se intenta una vez con el otro.
     """
-    nim = _nuevo_nim()
-    listo, motivo = nim.disponible()
-    if listo:
-        return nim
-    log.debug("sin clave de NIM para la caida: %s", motivo)
-    return _nuevo_gemini()
+    if es_nim(prov):
+        gemini = _nuevo_gemini()
+        return gemini if gemini.disponible()[0] else None
+    if es_gemini(prov):
+        nim = _nuevo_nim()
+        return nim if nim.disponible()[0] else None
+    return None
 
 
 # --- Utilidades ---------------------------------------------------------------
@@ -150,12 +129,6 @@ def es_gemini(prov: ProveedorIA) -> bool:
     from .ai import CorrectorIA
 
     return isinstance(prov, CorrectorIA)
-
-
-def es_ollama(prov: ProveedorIA) -> bool:
-    from .ollama import ProveedorOllama
-
-    return isinstance(prov, ProveedorOllama)
 
 
 def es_nim(prov: ProveedorIA) -> bool:
@@ -169,12 +142,9 @@ def etiqueta(prov: ProveedorIA) -> str:
     para el log alcanza con el modulo en que vive."""
     from .ai import CorrectorIA
     from .nvidia import ProveedorNIM
-    from .ollama import ProveedorOllama
 
     if isinstance(prov, ProveedorNIM):
         return "nvidia"
     if isinstance(prov, CorrectorIA):
         return "gemini"
-    if isinstance(prov, ProveedorOllama):
-        return "ollama"
     return type(prov).__module__

@@ -1,11 +1,12 @@
 """
 Tests de la orden de proveedores y la guarda anti-disculpas.
 
-El 3B local llego a escribir "Lo siento, pero no puedo cumplir..." en
+Un modelo llego a escribir "Lo siento, pero no puedo cumplir..." en
 lugar del texto del usuario, y esa mezcla pasaba la guarda de longitud
 (una disculpa corta entra en el rango 30%-200%). Estos tests cubren las
 dos defensas: la guarda que rechaza disculpas inventadas, y el orden de
-proveedores que prioriza la nube confiable sobre el local veloz.
+proveedores (NIM primero, Gemini despues) que prioriza la nube con cupo
+mas generoso.
 """
 
 from __future__ import annotations
@@ -62,11 +63,10 @@ def test_variedad_de_rechazos_se_detecta():
 # --- Orden de proveedores ----------------------------------------------------
 
 
-def test_con_clave_nim_la_nube_manda(monkeypatch, tmp_path):
-    """Si hay clave de NIM guardada, la nube va primero (el local es opt-in)."""
+def test_con_clave_nim_la_nube_manda(monkeypatch):
+    """Si hay clave de NIM, NVIDIA va primero aunque tambien este Gemini."""
     import core.proovedor as prov_mod
     from core.nvidia import ProveedorNIM
-    from core.ollama import ProveedorOllama
 
     class _NIMFalso(ProveedorNIM):
         modelo = "meta/llama-3.2-90b-vision-instruct"
@@ -74,67 +74,45 @@ def test_con_clave_nim_la_nube_manda(monkeypatch, tmp_path):
         def disponible(self):
             return True, ""
 
-    class _OllamaFalso(ProveedorOllama):
-        def _ollama_arriba(self):
-            return True  # Ollama corriendo, pero la nube manda igual
-
     monkeypatch.setattr(prov_mod, "_nuevo_nim", lambda: _NIMFalso())
-    monkeypatch.setattr(prov_mod, "_nuevo_ollama", lambda: _OllamaFalso())
     monkeypatch.delenv("PROVEEDOR_IA", raising=False)
 
     prov = prov_mod.seleccion_proveedor()
     assert prov_mod.etiqueta(prov) == "nvidia"
 
 
-def test_sin_clave_nim_ollama_manda(monkeypatch):
-    """Sin clave de NIM, el local sigue siendo el default."""
+def test_sin_clave_nim_va_a_gemini(monkeypatch):
+    """Sin clave de NIM, el default es Gemini con la suya."""
     import core.proovedor as prov_mod
-    from core.ollama import ProveedorOllama
+    from core.nvidia import ProveedorNIM
 
-    class _NIMSinClave:
-        modelo = "meta/llama-3.2-90b-vision-instruct"
-
+    class _NIMSinClave(ProveedorNIM):
         def disponible(self):
             return False, "falta la clave"
 
-    class _OllamaFalso(ProveedorOllama):
-        def _ollama_arriba(self):
-            return True
-
     monkeypatch.setattr(prov_mod, "_nuevo_nim", lambda: _NIMSinClave())
-    monkeypatch.setattr(prov_mod, "_nuevo_ollama", lambda: _OllamaFalso())
     monkeypatch.delenv("PROVEEDOR_IA", raising=False)
 
     prov = prov_mod.seleccion_proveedor()
-    assert prov_mod.etiqueta(prov) == "ollama"
+    assert prov_mod.etiqueta(prov) == "gemini"
 
 
-def test_ollama_optin_explicito(monkeypatch):
-    """PROVEEDOR_IA=ollama fuerza el local aunque haya clave de NIM."""
+def test_ollama_en_el_env_viejo_cae_al_default_de_nube(monkeypatch):
+    """PROVEEDOR_IA=ollama ya no existe: no rompe, cae al default de nube."""
     import core.proovedor as prov_mod
-    from core.ollama import ProveedorOllama
+    from core.nvidia import ProveedorNIM
 
-    class _NIMFalso:
+    class _NIMFalso(ProveedorNIM):
         modelo = "meta/llama-3.2-90b-vision-instruct"
 
         def disponible(self):
             return True, ""
 
-    class _OllamaFalso(ProveedorOllama):
-        modelo = "llama3.2:3b"
-
-        def disponible(self):
-            return True, ""
-
-        def _ollama_arriba(self):
-            return True
-
     monkeypatch.setattr(prov_mod, "_nuevo_nim", lambda: _NIMFalso())
-    monkeypatch.setattr(prov_mod, "_nuevo_ollama", lambda: _OllamaFalso())
     monkeypatch.setenv("PROVEEDOR_IA", "ollama")
 
     prov = prov_mod.seleccion_proveedor()
-    assert prov_mod.etiqueta(prov) == "ollama"
+    assert prov_mod.etiqueta(prov) == "nvidia"
 
 
 # --- Guarda de salto de pagina -----------------------------------------------

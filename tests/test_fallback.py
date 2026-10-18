@@ -1,13 +1,14 @@
 """
-Tests de la caida local -> nube.
+Tests del fallback nube -> nube.
 
-Si el proovedor local (Ollama) revienta al corregir, el engine cae a la
-nube (NIM o Gemini, el que tenga clave) en el mismo pedido. Si el
-proovedor original ya era nube y revienta, no se reintenta: se propaga.
+Si el proveedor elegido (NVIDIA o Gemini) revienta al corregir (red,
+cuota, clave invalida), el engine reintenta UNA vez con el otro. Si no
+hay otro disponible, o si el segundo tambien revienta, se propaga el
+fallo: mejor fallar que inventar.
 
-Los tests patean `seleccion_nube`: con la clave de NIM guardada en DPAPI,
-el proovedor de nube real es NVIDIA, y un test que no lo patee llamaria
-a la API de verdad (lento, y gasta la cuota del usuario).
+Los tests patean `seleccion_proveedor` y `otra_nube`: sin eso, con una
+clave real guardada llamarian a la API de verdad (lento, y gasta la
+cuota del usuario).
 """
 
 from __future__ import annotations
@@ -21,92 +22,150 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 import core.proovedor as prov_mod
 from core.ai import CuotaAgotada
-from core.ollama import ProveedorOllama
 
 
-def _patear_nube(monkeypatch, salida):
-    """Patea `seleccion_nube` para que la caida no llame a la API real."""
+class _NIMRota:
+    modelo = "meta/llama-3.2-90b-vision-instruct"
 
-    class _NubeFalsa:
-        modelo = "falso"
+    def corregir(self, texto):
+        raise CuotaAgotada("cuota agotada")
 
-        def corregir(self, texto):
-            return salida
-
-        def disponible(self):
-            return True, ""
-
-    monkeypatch.setattr(prov_mod, "seleccion_nube", lambda: _NubeFalsa())
+    def disponible(self):
+        return True, ""
 
 
-def _ollama_roto(monkeypatch) -> ProveedorOllama:
-    """`seleccion_proveedor` devuelve Ollama que revienta al corregir."""
-    import httpx
+class _GeminiOK:
+    modelo = "gemini-2.5-flash-lite"
 
-    class _Ollama(ProveedorOllama):
-        def corregir(self, texto):
-            raise httpx.HTTPStatusError(
-                "404", request=httpx.Request("POST", "http://127.0.0.1:11434/api/chat")
-            )
+    def corregir(self, texto):
+        return "corregido por gemini"
 
-    monkeypatch.setattr(prov_mod, "seleccion_proveedor", lambda: _Ollama(modelo="llama3.2:3b"))
-    return _Ollama(modelo="llama3.2:3b")
+    def disponible(self):
+        return True, ""
 
 
-def test_ollama_falla_y_cae_a_la_nube(monkeypatch):
+class _GeminiRota:
+    modelo = "gemini-2.5-flash-lite"
+
+    def corregir(self, texto):
+        raise CuotaAgotada("cuota agotada")
+
+    def disponible(self):
+        return True, ""
+
+
+class _NimOK:
+    modelo = "meta/llama-3.2-90b-vision-instruct"
+
+    def corregir(self, texto):
+        return "corregido por nvidia"
+
+    def disponible(self):
+        return True, ""
+
+
+def _patear(monkeypatch, primario, otra):
+    """Patea la seleccion y el fallback para no tocar la API real."""
+    monkeypatch.setattr(prov_mod, "seleccion_proveedor", lambda: primario)
+    monkeypatch.setattr(prov_mod, "otra_nube", lambda _prov: otra)
+
+
+def test_nvidia_falla_y_reintenta_con_gemini(monkeypatch):
     from core import engine
 
-    _ollama_roto(monkeypatch)
-    _patear_nube(monkeypatch, "El cliente pidió tres cajas.")
+    _patear(monkeypatch, _NIMRota(), _GeminiOK())
 
-    resultado = engine.correct("El cliente pidio tres cajas", "ia", "roundtrip")
+    resultado = engine.correct("hola", "ia", "roundtrip")
 
-    assert resultado == "El cliente pidió tres cajas."
+    assert resultado == "corregido por gemini"
 
 
-def test_gemini_roto_se_propaga_sin_reintentar(monkeypatch):
-    """Si el proovedor original es nube y revienta, no se reintenta: se propaga."""
-
-    class _GeminiRoto:
-        modelo = "gemini-2.5-flash-lite"
-
-        def corregir(self, texto):
-            raise CuotaAgotada("cuota agotada")
-
-        def disponible(self):
-            return True, ""
-
-    monkeypatch.setattr(prov_mod, "seleccion_proveedor", lambda: _GeminiRoto())
-
+def test_gemini_falla_y_reintenta_con_nvidia(monkeypatch):
     from core import engine
+
+    _patear(monkeypatch, _GeminiRota(), _NimOK())
+
+    resultado = engine.correct("hola", "ia", "roundtrip")
+
+    assert resultado == "corregido por nvidia"
+
+
+def test_sin_otra_nube_disponible_se_propaga(monkeypatch):
+    """Si no hay segundo proveedor con clave, el fallo del primero sube."""
+    from core import engine
+
+    _patear(monkeypatch, _NIMRota(), None)
 
     with pytest.raises(CuotaAgotada):
         engine.correct("hola", "ia", "roundtrip")
 
 
-def test_la_caida_pide_seleccion_nube(monkeypatch):
-    """La caida va por `seleccion_nube`, no por un proovedor fijo."""
+def test_si_el_fallback_tambien_revienta_se_propaga(monkeypatch):
+    from core import engine
+
+    _patear(monkeypatch, _NIMRota(), _GeminiRota())
+
+    with pytest.raises(CuotaAgotada):
+        engine.correct("hola", "ia", "roundtrip")
+
+
+def test_si_el_primario_no_falla_no_se_toca_el_fallback(monkeypatch):
+    """El reintento es solo para fallos: un pedido normal no lo consulta."""
     from core import engine
 
     llamadas = []
 
-    def _espia():
+    def _espia(_prov):
         llamadas.append(1)
-        return _NubeContada()
+        return _NimOK()
 
-    class _NubeContada:
-        modelo = "falso"
-
-        def corregir(self, texto):
-            return "corregido"
-
-        def disponible(self):
-            return True, ""
-
-    monkeypatch.setattr(prov_mod, "seleccion_nube", _espia)
-    _ollama_roto(monkeypatch)
+    monkeypatch.setattr(prov_mod, "seleccion_proveedor", lambda: _GeminiOK())
+    monkeypatch.setattr(prov_mod, "otra_nube", _espia)
 
     resultado = engine.correct("hola", "ia", "roundtrip")
 
-    assert resultado == "corregido"
-    assert llamadas, "la caida no consulto a seleccion_nube"
+    assert resultado == "corregido por gemini"
+    assert not llamadas, "el fallback se consulto sin que nadie fallara"
+
+
+# --- otra_nube (la logica del fallback, sin patear) ---------------------------
+
+
+def test_otra_nube_de_nim_busca_gemini(monkeypatch):
+    from core.nvidia import ProveedorNIM
+
+    class _GeminiFalso:
+        def disponible(self):
+            return True, ""
+
+    monkeypatch.setattr(prov_mod, "_nuevo_gemini", lambda: _GeminiFalso())
+
+    otra = prov_mod.otra_nube(ProveedorNIM(api_key="k"))
+
+    assert isinstance(otra, _GeminiFalso)
+
+
+def test_otra_nube_de_gemini_busca_nim_si_hay_clave(monkeypatch):
+    from core.ai import CorrectorIA
+
+    class _NimFalso:
+        def disponible(self):
+            return True, ""
+
+    monkeypatch.setattr(prov_mod, "_nuevo_nim", lambda: _NimFalso())
+
+    otra = prov_mod.otra_nube(CorrectorIA(api_key="k"))
+
+    assert isinstance(otra, _NimFalso)
+
+
+def test_otra_nube_sin_clave_del_otro_devuelve_none(monkeypatch):
+    from core.ai import CorrectorIA
+
+    class _NimSinClave:
+        def disponible(self):
+            return False, "falta la clave"
+
+    monkeypatch.setattr(prov_mod, "_nuevo_nim", lambda: _NimSinClave())
+
+    assert prov_mod.otra_nube(CorrectorIA(api_key="k")) is None

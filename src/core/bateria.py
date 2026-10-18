@@ -2,7 +2,7 @@
 Bateria de frases contra el modelo real.
 
 No toca ninguna pantalla ni escribe en ninguna aplicacion: solo llama al
-proovedor elegido (Ollama local o Gemini, el que este disponible) y muestra
+proovedor elegido (NVIDIA o Gemini, el que tenga clave) y muestra
 el antes y el despues. Sirve para medir el prompt antes de confiar en el
 corrector con texto real.
 
@@ -48,8 +48,7 @@ def ejecutar(filtro: str = "", pausa: float = 0.0) -> int:
     listo, motivo = corrector.disponible()
     if not listo:
         print(f"No se puede probar: {motivo}")
-        print("Gemini: revisa .env y corré: uv sync --extra ai")
-        print("Ollama: corré: ollama pull llama3.2:3b y arranque Ollama")
+        print("Claves: revisa el .env (GEMINI_API_KEY / NIM_API_KEY) y corré: uv sync --extra ai")
         return 1
 
     casos = [c for c in casos_disponibles() if filtro in c.nombre]
