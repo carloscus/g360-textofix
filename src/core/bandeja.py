@@ -180,6 +180,17 @@ class Bandeja:
 
     def _pedir_clave(self, nombre: str, donde: str, leer, guardar, probar=None):
         """Pide una clave por consola, la guarda cifrada (DPAPI) y la verifica."""
+        from .consola import cerrar_consola_propia, pedir_consola
+
+        pedir_consola()
+        try:
+            self._pedir_clave_en_consola(nombre, donde, leer, guardar, probar)
+        finally:
+            # La consola propia se cierra con Enter al terminar; la de
+            # origen (terminal, desarrollo) no se toca.
+            cerrar_consola_propia()
+
+    def _pedir_clave_en_consola(self, nombre, donde, leer, guardar, probar):
         print(f"\n[g360-textofix] Clave de la API de {nombre}")
         print(f"Pedila en {donde}")
         print(f"Se guarda cifrada en: {ruta_perfil()}")
@@ -188,7 +199,7 @@ class Bandeja:
             print("Ya hay una clave guardada. Pega la nueva o ENTER para dejarla.")
         try:
             nueva = input("Clave (oculta no se puede: pegala con Ctrl+V): ").strip()
-        except (EOFError, KeyboardInterrupt):
+        except (EOFError, KeyboardInterrupt, OSError):
             print("\nCancelado.")
             return
         if not nueva:
@@ -217,6 +228,15 @@ class Bandeja:
         Re-registrar en caliente en vez de pedir un reinicio es la diferencia
         entre que alguien cambie el atajo y que lo deje como estaba.
         """
+        from .consola import cerrar_consola_propia, pedir_consola
+
+        pedir_consola()
+        try:
+            self._cambiar_atajo_en_consola()
+        finally:
+            cerrar_consola_propia()
+
+    def _cambiar_atajo_en_consola(self):
         from .hotkey import AtajoInvalido, describir_atajo, parsear_atajo
         from .perfil import guardar_atajo
 

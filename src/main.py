@@ -222,14 +222,36 @@ def _asegurar_clave() -> bool:
         log.error("modo IA no disponible: %s", motivo)
         return False
 
-    # Sin clave y sin quien pueda escribirla (exe lanzado sin consola): se
-    # avisa. El menu de la bandeja sigue siendo la via para configurarla.
-    if sys.stdin is None or sys.stdin.closed or not sys.stdin.isatty():
+    from core import consola
+
+    # Sin donde pedir nada (ni consola ni pipe): popup que ofrece abrir una.
+    if consola.sin_salida():
+        if not consola.avisar(
+            "g360-textofix - falta la clave de API",
+            "No se detecto ninguna clave (Gemini / NVIDIA).\n\n"
+            "Se puede abrir una consola para pegarla ahora, o configurarla "
+            "despues desde la bandeja (Clave API...).",
+            ofrecer=True,
+        ):
+            log.error("falta la clave y no se abrio consola: modo simulado")
+            return False
+        if not consola.pedir_consola():
+            log.error("no se pudo abrir la consola para pedir la clave")
+            return False
+    elif sys.stdin is None or sys.stdin.closed or not sys.stdin.isatty():
+        # Hay salida (terminal o pipe) pero no quien escribirla: se avisa en
+        # el log y ya. El menu de la bandeja sigue siendo la via para
+        # configurarla.
         log.error("falta la clave de alguna API y no hay consola para pedirla")
         return False
 
-    if not _pedir_claves():
-        return False
+    try:
+        if not _pedir_claves():
+            return False
+    finally:
+        # Si se abrio una consola propia, se cierra con pausa para leer el
+        # resultado de la verificacion. La terminal de origen no se toca.
+        consola.cerrar_consola_propia()
 
     listo, motivo = seleccion_proveedor().disponible()
     if not listo:
@@ -248,6 +270,12 @@ def _clavedisponible() -> bool:
 
 
 def main(argv: list[str] | None = None) -> int:
+    from core import consola
+
+    # Antes de nada: consola de origen si venimos de un terminal (ahi viven
+    # --help, --version y --probar-api), o salida inerte si arrancamos en
+    # segundo plano (doble clic, inicio con Windows).
+    consola.preparar()
     args = parse_args(argv)
     cargar_dotenv()
     cfg = Config.from_env()
@@ -263,12 +291,19 @@ def main(argv: list[str] | None = None) -> int:
         return ejecutar(args.filtro, args.pausa)
 
     if args.probar_api:
-        from core.ping import imprimir, probar_todo
+        from core.ping import imprimir, linea, probar_todo
 
         print("\n[g360-textofix] Verificacion de la API (1 llamada minima por proveedor)\n")
         resultados = probar_todo()
         for r in resultados:
             imprimir(r)
+        if consola.sin_salida():
+            # Sin donde imprimir (ni terminal ni pipe): el resultado va en un
+            # popup; si hay pipe/terminal, ya se imprimio arriba.
+            cuerpo = "\n".join(linea(r) for r in resultados)
+            if not any(r["ok"] for r in resultados):
+                cuerpo += "\n\nNingun proveedor quedo usable: revisa las claves o el .env."
+            consola.avisar("g360-textofix - verificacion de API", cuerpo)
         if any(r["ok"] for r in resultados):
             return 0
         print("\nNingun proveedor quedo usable: revisa las claves o el .env.")
@@ -410,7 +445,10 @@ def main(argv: list[str] | None = None) -> int:
     try:
         escucha.start(lambda accion: acciones.get(accion, lambda: None)())
     except OSError as exc:
+        # Sin donde mostrar el error (arranque en segundo plano): popup.
         log.error("%s", exc)
+        if consola.sin_salida():
+            consola.avisar("g360-textofix", f"No se pudieron registrar los atajos:\n{exc}")
         return 2
     except KeyboardInterrupt:
         log.info("interrumpido")

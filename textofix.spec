@@ -57,7 +57,8 @@ a = Analysis(
     [str(SRC / "main.py")],
     pathex=[str(SRC)],
     binaries=binarios,
-    datas=[(str(RAIZ / "assets" / "g360-textofix.ico"), "assets")],
+    # assets/ entero: icono de bandeja (ruta_icono) y sonidos (feedback).
+    datas=[(str(RAIZ / "assets"), "assets")],
     hiddenimports=hidden,
     hookspath=[],
     runtime_hooks=[],
@@ -81,6 +82,8 @@ exe = EXE(
     upx=True,
     upx_exclude=[],
     runtime_tmpdir=None,
-    console=True,  # hace falta consola para ver los errores de inicio
+    console=False,  # arranca en segundo plano; la consola la crea el propio
+    # programa cuando pide algo (core/consola.py). Desde un terminal,
+    # --probar-api y --bateria imprimen ahi (AttachConsole).
     disable_windowed_traceback=False,
 )
