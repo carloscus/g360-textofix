@@ -20,6 +20,9 @@ corrige de verdad los casos dificiles:
 
 nvidia/nemotron-3.5-lightning-30b-a3b responde en 0.5s pero no corrige
 nada (deja 'como' y 'comodo' tal cual): inutil para este proposito.
+El 90b se satura en horas pico (timeouts de 90-120s), asi que hay una
+cadena de respaldo con nvidia/nemotron-3-super-120b-a12b, que responde
+en 1-6s y corrige la mayoria (comodato si; el ¿? de 'como' no).
 """
 
 from __future__ import annotations
@@ -34,6 +37,10 @@ log = logging.getLogger(LOGGER_NAME)
 
 URL_POR_DEFECTO = "https://integrate.api.nvidia.com/v1/chat/completions"
 MODELO_POR_DEFECTO = "meta/llama-3.2-90b-vision-instruct"
+# Respaldo interno: el 90b es el que mejor corrige pero se satura en horas
+# pico (timeouts de 120s). El nemotron-super responde en 1-6s y corrige la
+# mayoria. Si el primero no responde, se intenta el segundo.
+MODELOS_DE_REPALDO = ["nvidia/nemotron-3-super-120b-a12b"]
 
 
 class NIMCorrupta(RuntimeError):
@@ -104,8 +111,7 @@ class ProveedorNIM:
 
         transcurrido = time.monotonic() - inicio
         log.info(
-            "nvidia %s respondio en %.2fs (%s -> %s)",
-            self.modelo,
+            "nvidia respondio en %.2fs (%s -> %s)",
             transcurrido,
             describe(texto),
             describe(mensaje),
@@ -116,13 +122,54 @@ class ProveedorNIM:
         """
         Llama a la API y devuelve el texto de respuesta.
 
+        Prueba la cadena de modelos en orden (el default, y los de
+        respaldo). Un modelo saturado (timeout) o retirado (404/410) no
+        aborta la correccion: se pasa al siguiente. Si la cadena entera
+        falla, se levanta NIMCorrupta y el engine decide que hacer.
+
         Los modelos de razonamiento (Nemotron) gastan tokens pensando en
         `reasoning_content`, y con pocos tokens el `content` llega vacio.
         `thinking: False` lo evita; si el modelo no conoce el parametro,
         se reintenta sin el. Para corregir ortografia no hace falta pensar.
         """
+        cadena = [self.modelo] + [m for m in MODELOS_DE_REPALDO if m != self.modelo]
+        ultimo_error: Exception | None = None
+
+        for modelo in cadena:
+            try:
+                mensaje = self._pedir_un_modelo(httpx, modelo, prompt, texto)
+            except httpx.TimeoutException as exc:
+                log.warning(
+                    "nvidia %s no respondio en %ds: se prueba el respaldo",
+                    modelo,
+                    self.timeout_s,
+                )
+                ultimo_error = exc
+                continue
+            except httpx.HTTPStatusError as exc:
+                log.warning(
+                    "nvidia %s devolvio %s: se prueba el respaldo",
+                    modelo,
+                    exc.response.status_code,
+                )
+                ultimo_error = exc
+                continue
+
+            if mensaje is not None:
+                return mensaje
+            # Respondio pero sin content (razono y se quedo sin tokens):
+            # se prueba el siguiente modelo de la cadena.
+            log.warning("nvidia %s devolvio content vacio", modelo)
+
+        raise NIMCorrupta(
+            f"ningun modelo de NIM respondio ({len(cadena)} probados): "
+            f"ultimo error {type(ultimo_error).__name__ if ultimo_error else '-'}"
+        ) from ultimo_error
+
+    def _pedir_un_modelo(self, httpx, modelo: str, prompt: str, texto: str) -> str | None:
+        """Una sola llamada a un modelo. Devuelve el texto, o None si no hay."""
         base = {
-            "model": self.modelo,
+            "model": modelo,
             "messages": [
                 {"role": "system", "content": prompt},
                 {"role": "user", "content": texto},
@@ -152,7 +199,7 @@ class ProveedorNIM:
         if mensaje is None:
             # El modelo razono y se quedo sin tokens para el contenido:
             # reintento basico con mas margen.
-            log.warning("nvidia devolvio content vacio: se reintenta sin thinking")
+            log.warning("nvidia %s devolvio content vacio: se reintenta sin thinking", modelo)
             respuesta = httpx.post(self.url, headers=headers, json=base, timeout=self.timeout_s)
             mensaje = _contenido(respuesta)
         return mensaje
