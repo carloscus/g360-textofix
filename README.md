@@ -6,15 +6,12 @@ Microherramienta del ecosistema G360. Seleccionás un texto en cualquier
 aplicación, apretás `Ctrl+Shift+E` y el texto seleccionado se corrige y se
 reemplaza donde estaba, sin perder el formato.
 
-**Estado: Etapa 3 terminada.** Corrige **offline con Ollama local** por
-defecto (sin cuota, sin red, el texto no sale de tu maquina) y cae a Gemini
-por la nube cuando no hay Ollama. Vive en la bandeja del sistema, tiene
+**Estado: Etapa 3 terminada.** Corrige **por la nube** con NVIDIA NIM o
+Gemini: autodetecta la clave (`.env`, entorno o almacén cifrado de Windows) y,
+si no hay ninguna, la pide una vez por consola. Si el proveedor elegido falla,
+reintenta con el otro. Vive en la bandeja del sistema, tiene
 deshacer/rehacer, atajos configurables en caliente, y se empaqueta en un
 `.exe` único de ~34 MB.
-
-Los modelos que mejor corrigen el espanol peruano con el prompt conservador
-se miden con `tools/comparar_modelos.py`. Por defecto corre
-`llama3.2:3b` (el único que a velocidad utilizable en CPU).
 
 ---
 
@@ -31,7 +28,7 @@ se miden con `tools/comparar_modelos.py`. Por defecto corre
 - [Clave de la API y privacidad de la clave](#clave-de-la-api-y-privacidad-de-la-clave)
 - [Cómo decide a quién corregir](#cómo-decide-a-quién-corregir)
 - [Garantías de seguridad](#garantías-de-seguridad)
-- [Corrección con Gemini y Ollama local](#corrección-con-gemini-y-ollama-local)
+- [Corrección por la nube: NVIDIA y Gemini](#corrección-por-la-nube-nvidia-y-gemini)
 - [Estructura](#estructura)
 - [Testing](#testing)
 - [Licencia](#licencia)
@@ -58,8 +55,9 @@ Se equivocó y querés volver atrás: `Ctrl + Shift + Z`. Lo querés reponer:
 
 ## Atajos y bandeja
 
-El corrector vive en la bandeja del sistema, no en una ventana. El icono es una
-barra verde entre dos grises (el logo G360) y su menú es corto a propósito:
+El corrector vive en la bandeja del sistema, no en una ventana. El icono es la
+marca G360 (tres puntos —gris, verde, gris— y un chevron verde) y su menú es
+corto a propósito:
 
 ```
 Activo · Modo IA
@@ -68,7 +66,8 @@ Deshacer corrección            (gris si no hay nada)
 Rehacer corrección             (gris si no hay nada)
 ──────────────────────────────
 Cambiar atajo…
-Configurar clave API…
+Clave API Gemini…
+Clave API NVIDIA…
 Iniciar con Windows            ✓
 ──────────────────────────────
 Salir
@@ -168,8 +167,10 @@ corrector, qué adaptador usaría y si está bloqueado por permisos.
 
 Descargá `dist/g360-textofix.exe` y ejecutalo. No requiere Python ni `uv`.
 
-La primera vez te pide la clave de la API de Gemini. Podés pegarla desde la
-consola con `Ctrl+V` o desde el menú de la bandeja (`Configurar clave API…`).
+La primera vez, si no detecta ninguna clave (`.env`, entorno o almacén
+cifrado), te pide **por consola** la de Gemini y la de NVIDIA —con una
+alcanza, `ENTER` para omitir—. También podés pegarlas desde el menú de la
+bandeja (`Clave API Gemini…` / `Clave API NVIDIA…`).
 
 ### Opción B: desde el código
 
@@ -198,11 +199,14 @@ uv run python src/main.py --modo ia
 ### Empaquetar el `.exe`
 
 ```powershell
-uv sync --extra pack
+uv sync --extra ai --extra pack
 uvx pyinstaller textofix.spec --noconfirm
 ```
 
-Sale un único archivo en `dist/g360-textofix.exe` (~26 MB) con el icono
+Sin el extra `ai`, `uv sync` **desinstala** `google-genai` y el `.exe` sale sin
+Modo IA (el `.spec` lo lista en `hiddenimports`).
+
+Sale un único archivo en `dist/g360-textofix.exe` (~34 MB) con el icono
 incrustado. El `.spec` ya trae los `datas` (icono y batería de frases), así
 que `--bateria` funciona también dentro del ejecutable.
 
@@ -229,8 +233,9 @@ secretos, así que puede repartirse libremente.
 
 ```
 %APPDATA%\g360-textofix\
-├── clave.dat     # la clave de Gemini, cifrada con DPAPI
-└── config.json   # atajos, iniciar con Windows, activo/inactivo
+├── clave.dat       # la clave de Gemini, cifrada con DPAPI
+├── clave_nim.dat   # la clave de NVIDIA NIM, cifrada con DPAPI
+└── config.json     # atajos, iniciar con Windows, activo/inactivo
 ```
 
 **DPAPI** es la cifrado del propio Windows, atada a la cuenta del usuario. No
@@ -238,8 +243,9 @@ hay contraseña que recordar porque no existe contraseña: lo descifra Windows
 solo para esa cuenta. Copiar `clave.dat` a otro equipo o a otra cuenta **no
 sirve de nada**, y el archivo no contiene la clave en texto claro.
 
-Para cambiar de clave, `Configurar clave API…` en la bandeja. Para borrarla del
-todo, hay `borrar_clave_api()` en `src/core/perfil.py`.
+Para cambiar una clave, `Clave API Gemini…` o `Clave API NVIDIA…` en la
+bandeja. Para borrarlas del todo, hay `borrar_clave_api()` y
+`borrar_clave_nim()` en `src/core/perfil.py`.
 
 ### Uso en un solo equipo
 
@@ -255,18 +261,24 @@ proyecto.
 | Comando | Qué hace |
 |---|---|
 | `uv run python src/main.py` | Escucha los tres atajos, con la bandeja activa |
-| `uv run python src/main.py --modo ia` | **Corrige de verdad** con Gemini |
+| `uv run python src/main.py --modo ia` | **Corrige de verdad** con NVIDIA o Gemini |
 | `uv run python src/main.py --once` | Una corrección sobre lo seleccionado y sale |
 | `uv run python src/main.py --once --mock-transform wrap` | Envuelve el texto en `«»` para ver dónde se escribió |
 | `uv run python src/main.py --bateria` | Corre la batería de frases, sin escribir nada |
 | `uv run python src/main.py --bateria tilde --pausa 13` | Solo los casos `tilde`, con pausa para la cuota gratuita |
+| `uv run python src/main.py --probar-api` | Verifica claves/modelos con **1 llamada mínima** por proveedor |
 | `uv run python src/main.py --diagnostico` | Informa qué ventana está en primer plano y qué adaptador usaría |
 | `uv run python src/main.py --sin-sonido` | Desactiva los tonos |
 | `uv run python src/main.py --version` | Versión |
 | `uv run python src/main.py -v` | Detalle en consola |
 
 `--diagnostico` es el primer comando para usar si algo falla: dice si la
-aplicación está bloqueada (UIPI) y qué adaptador corresponde.
+aplicación está bloqueada (UIPI) y qué adaptador corresponde. Si el problema
+es la API, `--probar-api` dice si la clave sirve, si el modelo existe y si
+hay red — con un solo request (`401` clave mala, `404` modelo retirado,
+`429` cuota). Las claves **se verifican solas al guardarlas** (bandeja o
+prompt de arranque), así que una clave mala se entiende en el momento, no
+en la primera corrección.
 
 ---
 
@@ -294,21 +306,29 @@ Opcional, y pensado sobre todo para desarrollo.
 | Variable | Por defecto | Para qué |
 |---|---|---|
 | `GEMINI_API_KEY` | — | Clave de Gemini (solo si no hay clave DPAPI guardada) |
-| `GEMINI_MODEL` | `gemini-3.8-flash` | Modelo a usar |
+| `GEMINI_MODEL` | `gemini-2.5-flash-lite` | Modelo de Gemini |
 | `GEMINI_TIMEOUT_S` | `8` | Espera de la respuesta |
+| `NIM_API_KEY` | — | Clave de NVIDIA NIM (si hay, manda NVIDIA por defecto) |
+| `NIM_MODEL` | `nvidia/nemotron-3-super-120b-a12b` | Modelo de NVIDIA NIM (gratuito, medido ~1s) |
+| `PROVEEDOR_IA` | autodetect | Fuerza uno: `nvidia` o `gemini` |
 | `TEXTOFIX_SOUND` | `true` | Desactiva los tonos (pruebas automatizadas) |
 | `TEXTOFIX_ENABLED` | `true` | Desactiva el corrector sin salir |
 | `TEXTOFIX_VERBOSE` | `false` | Detalle en consola |
 | `TEXTOFIX_CLIPBOARD_TIMEOUT_MS` | `400` | Espera al `Ctrl+C`. Subirlo ayuda en equipos lentos |
 
-### Dónde busca la clave, en orden
+### Dónde busca cada clave, en orden
 
-1. **DPAPI** en `%APPDATA%\g360-textofix\clave.dat` — lo normal, y lo único que
-   funciona con el `.exe`.
-2. `GEMINI_API_KEY` del entorno o del `.env` — para desarrollo.
+1. **DPAPI** en `%APPDATA%\g360-textofix\` (`clave.dat` / `clave_nim.dat`) — lo
+   normal, y lo único que funciona con el `.exe`.
+2. `GEMINI_API_KEY` / `NIM_API_KEY` del entorno o del `.env`.
 
-Guardá la clave desde la bandeja (`Configurar clave API…`) y deja de depender
-del `.env`.
+El `.env` se busca en tres sitios (carpeta de trabajo, junto al `.exe` o a la
+raíz del proyecto, y `%APPDATA%\g360-textofix\`), así que el autodetect
+funciona aunque el acceso directo arranque con otro directorio de trabajo.
+
+Guardá las claves desde la bandeja (`Clave API Gemini…` / `Clave API
+NVIDIA…`) y dejá de depender del `.env`. Si no hay **ninguna** clave, el
+arranque las pide por consola una sola vez.
 
 ---
 
@@ -454,53 +474,35 @@ es peor que fallar.
 
 ---
 
-## Corrección con Gemini y Ollama local
+## Corrección por la nube: NVIDIA y Gemini
 
-Hay **dos proveedores** y el corrector elige solo el que tenga disponible:
+Hay **dos proveedores**, ambos de nube (el texto **sale** de tu máquina), y el
+corrector elige solo el que tenga clave:
 
-| Proveedor | Cuándo se usa | Cuota | Red | Latencia |
-|---|---|---|---|---|
-| **Ollama local** (default) | Si Ollama está corriendo con un modelo descargado | 0 | No | 4–15 s |
-| **Gemini** (fallback) | Si no hay Ollama, o si `PROVEEDOR_IA=gemini` | 5/min gratis | Sí | 2–5 s |
-
-```powershell
-# Ollama: corriendo en :11434, sin red, sin clave, sin cuota
-ollama pull qwen3:8b          # mejor calidad para español
-ollama pull gemma3:4b         # más liviano
-ollama pull llama3.2:3b       # el más chico, rápido en CPU
-
-# Para obligar uno:
-$env:PROVEEDOR_IA = "gemini"    # o "ollama"
-$env:OLLAMA_MODEL = "qwen3:8b"  # modelo local a usar
-```
-
-### Ollama local (la opción por defecto)
-
-El `.exe` **no necesita clave ni red**. Si el usuario instaló Ollama y
-descargó un modelo, corre offline para siempre. El texto **no sale de su
-máquina**.
-
-Para probar con un modelo local, primero hay que instalar Ollama
-(descarga de [ollama.com](https://ollama.com), instalador estándar de
-Windows) y descargar un modelo:
+| Proveedor | Cuándo se usa | Cuota | Latencia |
+|---|---|---|---|
+| **NVIDIA NIM** (default) | Si hay `NIM_API_KEY` o clave DPAPI guardada | cupo generoso | ~1 s |
+| **Gemini** | Si no hay clave de NIM, o si `PROVEEDOR_IA=gemini` | 5/min gratis | 2–5 s |
 
 ```powershell
-ollama pull qwen3:8b
+# Para obligar uno (o dejalo en el .env):
+$env:PROVEEDOR_IA = "nvidia"    # o "gemini"
 ```
 
-El modelo `qwen3:8b` (≈ 5 GB) es el que mejor responde al prompt conservador
-del proyecto. El `gemma3:4b` (≈ 3.4 GB) corre más rápido y es suficiente
-para correcciones cortas.
+Si el proveedor elegido **falla** (red, cuota, clave inválida), el engine
+**reintenta una vez con el otro** (fallback nube → nube). Si no hay otro
+disponible —o si el segundo también falla—, el texto original queda intacto y
+suena el tono de error: mejor no escribir que inventar.
 
-**Elegir modelo** con `tools/comparar_modelos.py`:
+### Pedir las claves
 
-```powershell
-uv run python tools/comparar_modelos.py          # todos, batería completa
-uv run python tools/comparar_modelos.py qwen3    # solo qwen3
-```
+- **NVIDIA NIM**: <https://build.nvidia.com> → *Generate API Key*
+- **Gemini**: <https://aistudio.google.com/apikey>
 
-El resultado es una tabla por modelo: exactos, rechazados por la guarda y
-latencia. Se usa para elegir entre los 4 sin probar uno a uno.
+Autodetect primero: `.env` (carpeta del proyecto, junto al `.exe` o en
+`%APPDATA%`), variables de entorno y almacén cifrado. Si **no hay ninguna**,
+el arranque abre la consola y pide las dos —con una alcanza, `ENTER` para
+omitir—. También desde la bandeja (`Clave API Gemini…` / `Clave API NVIDIA…`).
 
 ### Cuota gratuita y de pago: lo que hay que saber
 
@@ -518,9 +520,9 @@ entrenar.
 sobre correo, documentos o sistemas de una empresa, **corresponde activar la
 facturación**: no por el límite de pedidos, sino por los términos.
 
-**Con Ollama local, no aplica nada de lo anterior**: el texto no sale de la
-máquina, no hay cuota y no hay clave. Si usás Ollama, no necesitás
-activar facturación.
+NVIDIA NIM tiene su propio [contrato de servicio](https://build.nvidia.com/docs/api-terms-of-use);
+revisalo si el texto es sensible: en ambos casos **el texto sale de tu
+máquina**.
 
 
 ### El idioma: español peruano
@@ -596,7 +598,10 @@ g360-textofix/
 │       ├── estado.py           # activo/inactivo + búfer de deshacer (puro)
 │       ├── bandeja.py          # bandeja del sistema (pystray)
 │       ├── engine.py           # ciclo: leer -> corregir -> validar -> escribir
+│       ├── proovedor.py        # elige NVIDIA o Gemini + fallback nube -> nube
+│       ├── ping.py             # verifica clave/modelo con una llamada minima
 │       ├── ai.py               # Gemini: prompt conservador, reintento en 429
+│       ├── nvidia.py           # NVIDIA NIM: cadena de modelos con respaldo
 │       ├── guards.py           # validaciones (puro, sin Windows)
 │       ├── bateria.py          # ejecuta la batería contra el modelo
 │       ├── casos.py            # las frases de prueba (viven aquí, no en tests)

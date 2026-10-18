@@ -159,7 +159,7 @@ def slide_portada():
         Inches(4.5),
         Inches(11.5),
         Inches(0.6),
-        "Corrector de texto para Windows · atajo global · corrección offline (Ollama) o por la nube (Gemini)",
+        "Corrector de texto para Windows · atajo global · corrección por la nube (NVIDIA o Gemini)",
         size=16,
         color=GRIS_CLARO,
     )
@@ -277,7 +277,7 @@ def slide_3_bandeja():
         ("Activo · Modo IA", "Estado actual; no es un botón."),
         ("Deshacer / Rehacer", "En gris si no hay nada para aplicar."),
         ("Cambiar atajo…", "Valida, registra en caliente y guarda en el perfil."),
-        ("Configurar clave API…", "Pide la clave y la guarda cifrada con DPAPI."),
+        ("Clave API Gemini… / NVIDIA…", "Pide la clave y la guarda cifrada con DPAPI."),
         ("Iniciar con Windows", "Registra en HKCU, solo para tu cuenta."),
         ("Salir", "Suelta los atajos y cierra la bandeja."),
     ]
@@ -369,8 +369,8 @@ def slide_5_clave():
     _fondo(s, BLANCO)
     _tito_cabecera(
         s,
-        "La clave de Gemini",
-        "Primera vez te la pide la consola, luego vive cifrada en tu perfil.",
+        "Las claves de API",
+        "Si no hay ninguna, la consola las pide la primera vez; al guardarlas se verifican con una llamada real.",
     )
 
     _texto(
@@ -385,8 +385,8 @@ def slide_5_clave():
         color=NEGRO,
     )
     orden = [
-        "El almacén cifrado de Windows (DPAPI) — %APPDATA%\\g360-textofix\\clave.dat",
-        "El entorno GEMINI_API_KEY o el .env en la carpeta del proyecto",
+        "El almacén cifrado de Windows (DPAPI) — clave.dat (Gemini) y clave_nim.dat (NVIDIA)",
+        "El entorno GEMINI_API_KEY / NIM_API_KEY, o el .env del proyecto o de junto al .exe",
     ]
     y = Inches(2.25)
     for i, texto in enumerate(orden, start=1):
@@ -433,7 +433,7 @@ def slide_5_clave():
         y + Inches(0.65),
         Inches(11.5),
         Inches(0.4),
-        "Cambiarla desde la bandeja (Configurar clave API…) la hace efectiva al instante, sin reiniciar.",
+        "Cambiarla desde la bandeja (Clave API Gemini… / NVIDIA…) la hace efectiva al instante, sin reiniciar.",
         size=14,
         color=GRIS_OSCURO,
     )
