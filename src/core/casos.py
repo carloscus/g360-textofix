@@ -100,6 +100,26 @@ CORRECCIONES = [
         "Adjuntamos 3 facturas por un total de S/ 4,500.00.",
         nota="Solo el punto final: las cifras no se tocan.",
     ),
+    Caso(
+        "correo-breve-typo",
+        (
+            "Se envia esta solicitud aolicitando su aprobacion y habilitacion "
+            "del cliente para proceder con las atenciones y mercaderia e a "
+            "enviar segun lo solicitado por el cliente en su peduidoi de "
+            "campana que tienbe letras de anticipo y pendientes por entregar"
+        ),
+        (
+            "Se envía esta solicitud solicitando su aprobación y habilitación "
+            "del cliente para proceder con las atenciones y mercadería a "
+            "enviar según lo solicitado por el cliente en su pedido de "
+            "campaña que tiene letras de anticipo y pendientes por entregar."
+        ),
+        nota=(
+            "Correo breve real: 6 typos mezclados (aolicitando, peduidoi, "
+            "tienbe, una 'e' suelta, tildes). Los modelos chicos suelen "
+            "'charlar' aca; el 90b lo corrige completo."
+        ),
+    ),
 ]
 
 # --- Que NO deben cambiar ----------------------------------------------------
