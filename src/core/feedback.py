@@ -1,18 +1,38 @@
 """
 Avisos sonoros. Sin dependencias: `winsound` viene en la stdlib.
 
-Se usan tonos distintos en vez de `MessageBeep` para poder diferenciar de un
-golpe de oido: grave y corto = error, agudo = ok.
+Tres WAV cortos, sintetizados por `tools/generar_sonidos.py`, con envolvente
+suave (ataque rapido y caida exponencial): no es el bip de onda cuadrada
+del sistema, sino un sonido de interfaz actual. Se distinguen de un golpe
+de oido: ok = dos notas ascendentes, sin seleccion = nota media corta,
+error = golpe grave amortiguado.
+
+Se reproducen CON PlaySound SND_ASYNC: no bloquean el ciclo de correccion
+(winsound.Beep si lo bloqueaba 70-220 ms por correccion).
+
+Reservas: si falta el WAV (build raro) se cae al Beep del sistema; si no
+hay dispositivo de audio (sesion remota, entorno virtual), silencio.
 """
 
 from __future__ import annotations
 
+import sys
 import winsound
+from pathlib import Path
 
-# (frecuencia Hz, duracion ms)
-_TONE_OK = (1400, 70)
-_TONE_NO_SELECTION = (600, 120)
-_TONE_ERROR = (350, 220)
+# nombre logico -> archivo
+SONIDOS = {
+    "ok": "ok.wav",
+    "sin-seleccion": "sin-seleccion.wav",
+    "error": "error.wav",
+}
+
+# Reserva si el WAV no existe: el tono viejo del sistema.
+_BEEPS = {
+    "ok": (1400, 70),
+    "sin-seleccion": (600, 120),
+    "error": (350, 220),
+}
 
 _muted = False
 
@@ -22,27 +42,56 @@ def set_muted(muted: bool) -> None:
     _muted = muted
 
 
-def _play(tone: tuple[int, int]) -> None:
+def ruta_sonido(nombre: str) -> Path | None:
+    """
+    Busca el WAV, tanto en desarrollo como dentro del .exe.
+
+    PyInstaller extrae los datos a una carpeta temporal y publica la ruta en
+    sys._MEIPASS; sin eso el .exe no encontraria los sonidos.
+    """
+    base = getattr(sys, "_MEIPASS", None)
+    candidatas = []
+    if base:
+        candidatas.append(Path(base) / "assets" / "sonidos" / SONIDOS[nombre])
+    aqui = Path(__file__).resolve().parents[2] / "assets" / "sonidos" / SONIDOS[nombre]
+    candidatas.append(aqui)
+
+    for ruta in candidatas:
+        if ruta.exists():
+            return ruta
+    return None
+
+
+def _play(nombre: str) -> None:
     if _muted:
         return
-    freq, ms = tone
+    ruta = ruta_sonido(nombre)
+    if ruta is not None:
+        try:
+            winsound.PlaySound(
+                str(ruta),
+                winsound.SND_FILENAME | winsound.SND_ASYNC | winsound.SND_NODEFAULT,
+            )
+            return
+        except RuntimeError:
+            # Sin dispositivo de audio: no es fatal.
+            return
     try:
-        winsound.Beep(freq, ms)
+        winsound.Beep(*_BEEPS[nombre])
     except RuntimeError:
-        # Sin altavoz (sesion remota / entorno virtual): no es fatal.
         pass
 
 
 def ok() -> None:
     """La correccion se aplico."""
-    _play(_TONE_OK)
+    _play("ok")
 
 
 def no_selection() -> None:
     """No habia texto seleccionado: no se modifico nada."""
-    _play(_TONE_NO_SELECTION)
+    _play("sin-seleccion")
 
 
 def error() -> None:
     """Fallo la correccion: el original quedo intacto."""
-    _play(_TONE_ERROR)
+    _play("error")
