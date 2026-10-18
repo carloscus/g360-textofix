@@ -9,6 +9,17 @@ cupo es mas generoso que el free tier de Gemini.
 - El texto SI sale de la maquina (va a la nube). Si la privacidad es el
   motivo, usar Ollama local.
 - La clave se lee de NIM_API_KEY (o del almacen cifrado) y jamas se loguea.
+
+Sobre el modelo: se probaron las familias que quedan vivas en el catalogo
+2026 (los meta/llama-3.1 directos dieron 410 Gone, y no hay Qwen). El
+elegido fue meta/llama-3.2-90b-vision-instruct porque es el unico que
+corrige de verdad los casos dificiles:
+
+    'como se escribe si esta mal'  ->  '¿Cómo se escribe si está mal?'
+    'pidio un commodo'             ->  'pidió un comodato'
+
+nvidia/nemotron-3.5-lightning-30b-a3b responde en 0.5s pero no corrige
+nada (deja 'como' y 'comodo' tal cual): inutil para este proposito.
 """
 
 from __future__ import annotations
@@ -22,8 +33,6 @@ from .logsetup import LOGGER_NAME, describe
 log = logging.getLogger(LOGGER_NAME)
 
 URL_POR_DEFECTO = "https://integrate.api.nvidia.com/v1/chat/completions"
-# El modelo de correccion: grande para que resuelva "como"/"cómo" e invente
-# pocas palabras. El 90b corrige mejor que el 3b local.
 MODELO_POR_DEFECTO = "meta/llama-3.2-90b-vision-instruct"
 
 
@@ -39,11 +48,13 @@ class ProveedorNIM:
         modelo: str | None = None,
         url: str | None = None,
         api_key: str | None = None,
-        timeout_s: int = 60,
+        timeout_s: int = 120,
     ):
         self.modelo = modelo or os.environ.get("NIM_MODEL") or MODELO_POR_DEFECTO
         self.url = url or os.environ.get("NIM_URL") or URL_POR_DEFECTO
         self._api_key = api_key
+        # 120s: el 90b en horas pico tardo hasta 35s, y un timeout menor
+        # aborta correcciones que si iban a salir.
         self.timeout_s = timeout_s
 
     # --- Configuracion ------------------------------------------------------
@@ -89,29 +100,7 @@ class ProveedorNIM:
         from .ai import PROMPT  # mismo prompt conservador
 
         inicio = time.monotonic()
-        respuesta = httpx.post(
-            self.url,
-            headers={
-                "Authorization": f"Bearer {self.api_key}",
-                "Content-Type": "application/json",
-            },
-            json={
-                "model": self.modelo,
-                "messages": [
-                    {"role": "system", "content": PROMPT},
-                    {"role": "user", "content": texto},
-                ],
-                "max_tokens": 200,
-                "temperature": 0.1,
-                "top_p": 0.9,
-            },
-            timeout=self.timeout_s,
-        )
-        respuesta.raise_for_status()
-        cuerpo = respuesta.json()
-        mensaje = (cuerpo.get("choices") or [{}])[0].get("message", {}).get(
-            "content", ""
-        ).strip() or None
+        mensaje = self._pedir(httpx, PROMPT, texto)
 
         transcurrido = time.monotonic() - inicio
         log.info(
@@ -121,6 +110,51 @@ class ProveedorNIM:
             describe(texto),
             describe(mensaje),
         )
+        return mensaje
+
+    def _pedir(self, httpx, prompt: str, texto: str) -> str | None:
+        """
+        Llama a la API y devuelve el texto de respuesta.
+
+        Los modelos de razonamiento (Nemotron) gastan tokens pensando en
+        `reasoning_content`, y con pocos tokens el `content` llega vacio.
+        `thinking: False` lo evita; si el modelo no conoce el parametro,
+        se reintenta sin el. Para corregir ortografia no hace falta pensar.
+        """
+        base = {
+            "model": self.modelo,
+            "messages": [
+                {"role": "system", "content": prompt},
+                {"role": "user", "content": texto},
+            ],
+            "max_tokens": 500,
+            "temperature": 0.1,
+            "top_p": 0.9,
+        }
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+        }
+
+        def _contenido(resp) -> str | None:
+            eleccion = (resp.json().get("choices") or [{}])[0]
+            return (eleccion.get("message") or {}).get("content", "").strip() or None
+
+        # Primero con thinking apagado: corrige igual y gasta la mitad.
+        con_thinking = {**base, "chat_template_kwargs": {"thinking": False}}
+        respuesta = httpx.post(self.url, headers=headers, json=con_thinking, timeout=self.timeout_s)
+        if respuesta.status_code == 400:
+            # El modelo no conoce el parametro: se reintenta basico.
+            respuesta = httpx.post(self.url, headers=headers, json=base, timeout=self.timeout_s)
+        respuesta.raise_for_status()
+        mensaje = _contenido(respuesta)
+
+        if mensaje is None:
+            # El modelo razono y se quedo sin tokens para el contenido:
+            # reintento basico con mas margen.
+            log.warning("nvidia devolvio content vacio: se reintenta sin thinking")
+            respuesta = httpx.post(self.url, headers=headers, json=base, timeout=self.timeout_s)
+            mensaje = _contenido(respuesta)
         return mensaje
 
     def probar(self, texto: str) -> dict:
