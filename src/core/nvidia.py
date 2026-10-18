@@ -175,8 +175,8 @@ class ProveedorNIM:
                 {"role": "user", "content": texto},
             ],
             "max_tokens": 500,
-            "temperature": 0.1,
-            "top_p": 0.9,
+            "temperature": 0.5,
+            "top_p": 1.0,
         }
         headers = {
             "Authorization": f"Bearer {self.api_key}",
