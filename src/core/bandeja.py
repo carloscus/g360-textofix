@@ -120,6 +120,7 @@ class Bandeja:
             pystray.MenuItem("Cambiar atajo...", self._cambiar_atajo),
             pystray.MenuItem("Clave API Gemini...", self._configurar_clave),
             pystray.MenuItem("Clave API NVIDIA...", self._configurar_clave_nim),
+            pystray.MenuItem("Modelo de correccion", self._submenu_modelo()),
             pystray.MenuItem(
                 "Iniciar con Windows",
                 self._alternar_autostart,
@@ -177,6 +178,43 @@ class Bandeja:
             guardar_clave_nim,
             probar=probar_nvidia,
         )
+
+    def _submenu_modelo(self) -> pystray.Menu:
+        """
+        Las tres opciones de modelo, con radio y estado al dia.
+
+        El texto y los valores viven en `proovedor.OPCIONES_MODELO`: la
+        bandeja no decide nada, solo persiste la eleccion en el perfil
+        (ver `_elegir_modelo`). La marca se re-lee al abrir el menu, asi
+        que siempre refleja lo guardado.
+        """
+        from .perfil import leer_modelo_ia
+        from .proovedor import OPCIONES_MODELO
+
+        def _marcado(valor: str):
+            return lambda _item: leer_modelo_ia() == valor
+
+        return pystray.Menu(
+            *[
+                pystray.MenuItem(
+                    texto,
+                    lambda _item, _valor=valor: self._elegir_modelo(_valor),
+                    radio=True,
+                    checked=_marcado(valor),
+                )
+                for valor, texto in OPCIONES_MODELO
+            ]
+        )
+
+    def _elegir_modelo(self, valor: str, *_):
+        """Persiste la eleccion en el perfil: aplica al siguiente atajo."""
+        from .perfil import guardar_config, leer_config
+
+        config = leer_config()
+        config["modelo_ia"] = valor
+        guardar_config(config)
+        log.info("modelo de correccion elegido: %s", valor)
+        self.refrescar()
 
     def _pedir_clave(self, nombre: str, donde: str, leer, guardar, probar=None):
         """Pide una clave por consola, la guarda cifrada (DPAPI) y la verifica."""

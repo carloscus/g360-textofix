@@ -36,6 +36,10 @@ CONFIG_POR_DEFECTO = {
     "hotkey_rehacer": "CTRL+SHIFT+R",
     "iniciar_con_windows": False,
     "activo": True,
+    # Modelo elegido en la bandeja: auto | nvidia-90b | gemini.
+    # "auto" no es una eleccion: deja pasar PROVEEDOR_IA del .env y el
+    # autodetect (ver proovedor._eleccion_usuario).
+    "modelo_ia": "auto",
 }
 
 
@@ -220,6 +224,17 @@ def guardar_config(config: dict) -> None:
     DIR_PERFIL.mkdir(parents=True, exist_ok=True)
     limpio = {k: config[k] for k in CONFIG_POR_DEFECTO if k in config}
     ARCHIVO_CONFIG.write_text(json.dumps(limpio, indent=2, ensure_ascii=False), encoding="utf-8")
+
+
+def leer_modelo_ia() -> str:
+    """
+    La eleccion de modelo de la bandeja: auto | nvidia-90b | gemini.
+
+    "auto" (default) no manda: deja pasar PROVEEDOR_IA del .env y el
+    autodetect, ver `proovedor._eleccion_usuario`.
+    """
+    valor = leer_config().get("modelo_ia", "auto")
+    return str(valor).strip().lower()
 
 
 # El nombre de la accion no es la llave del config: separamos las dos cosas para

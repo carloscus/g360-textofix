@@ -41,6 +41,11 @@ deshacer/rehacer, atajos configurables en caliente, y se empaqueta en un
 2. Seleccioná el texto con el ratón o el teclado.
 3. Apretá `Ctrl + Shift + E`.
 
+**Variantes bajo demanda.** Si apretás el mismo atajo **otra vez sin tocar el
+texto**, la corrección se reemplaza por una **alternativa distinta** (hasta 2
+alternativas; en total 3 opciones). Cada variante es una llamada más a la
+API, pedida solo si insistís. `Ctrl + Shift + Z` vuelve a la anterior.
+
 | Situación | Qué pasa |
 |---|---|
 | Hay texto seleccionado y se corrige | Se reemplaza en el lugar. Aviso de OK (dos notas ascendentes). |
@@ -68,6 +73,7 @@ Rehacer corrección             (gris si no hay nada)
 Cambiar atajo…
 Clave API Gemini…
 Clave API NVIDIA…
+Modelo de corrección            Auto · NVIDIA 90b · Gemini
 Iniciar con Windows            ✓
 ──────────────────────────────
 Salir
@@ -312,6 +318,7 @@ Es lo que escribe el menú de la bandeja. Se arranca leyendo `.env` y después
 | `hotkey_rehacer` | `CTRL+SHIFT+R` | Atajo de rehacer |
 | `iniciar_con_windows` | `false` | Arranque automático |
 | `activo` | `true` | Arranca activo o desactivado |
+| `modelo_ia` | `auto` | Modelo elegido en la bandeja: `auto` / `nvidia-90b` / `gemini` |
 
 ### `.env` — lo técnico, en la carpeta del proyecto
 
@@ -507,6 +514,20 @@ Si el proveedor elegido **falla** (red, cuota, clave inválida), el engine
 **reintenta una vez con el otro** (fallback nube → nube). Si no hay otro
 disponible —o si el segundo también falla—, el texto original queda intacto y
 suena el tono de error: mejor no escribir que inventar.
+
+### Elegir el modelo desde la bandeja
+
+`Modelo de corrección` en el menú de la bandeja cambia entre tres opciones
+**al instante** (sin reiniciar; se guarda en el perfil):
+
+| Opción | Qué usa | Cuándo |
+|---|---|---|
+| **Auto** (default) | NIM nemotron-super si hay clave, si no Gemini | Lo normal |
+| **NVIDIA 90b Vision** | El modelo grande como principal | Si el super no te convence |
+| **Gemini** | La nube de Google directa | Si preferís Gemini |
+
+`auto` no pisa un `PROVEEDOR_IA` del `.env`, y la elección de la bandeja sí
+manda sobre él. El fallback nube→nube actúa igual con cualquiera de las tres.
 
 ### Pedir las claves
 

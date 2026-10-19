@@ -35,12 +35,14 @@ from .logsetup import LOGGER_NAME, describe
 log = logging.getLogger(LOGGER_NAME)
 
 URL_POR_DEFECTO = "https://integrate.api.nvidia.com/v1/chat/completions"
+# El 90b tambien se puede elegir a mano desde la bandeja (modelo_ia).
+MODELO_90B = "meta/llama-3.2-90b-vision-instruct"
 MODELO_POR_DEFECTO = "nvidia/nemotron-3-super-120b-a12b"
 # Respaldo: otra familia por si el primero no responde o anda mal. En la
 # medicion el 90b responde en 2-11s cuando no se cuelga; su fama de "mejor
 # calidad" no se reprodujo (1/5 en la bateria, y reescribio el formato de
 # moneda S/ 4,500.00 -> S/ 4.500,00).
-MODELOS_DE_REPALDO = ["meta/llama-3.2-90b-vision-instruct"]
+MODELOS_DE_REPALDO = [MODELO_90B]
 
 
 class NIMCorrupta(RuntimeError):
@@ -98,18 +100,23 @@ class ProveedorNIM:
 
     # --- Correccion ---------------------------------------------------------
 
-    def corregir(self, texto: str) -> str | None:
-        """Devuelve el texto corregido, o None si no se pudo."""
+    def corregir(self, texto: str, evitando: str | None = None) -> str | None:
+        """Devuelve el texto corregido, o None si no se pudo.
+
+        Con `evitando` se pide una variante: mismo texto, otra correccion
+        valida distinta de la que ya esta puesta.
+        """
         listo, motivo = self.disponible()
         if not listo:
             raise NIMCorrupta(motivo)
 
         import httpx
 
-        from .ai import PROMPT  # mismo prompt conservador
+        from .ai import PROMPT, prompt_variante  # mismo prompt conservador
 
         inicio = time.monotonic()
-        mensaje = self._pedir(httpx, PROMPT, texto)
+        prompt = prompt_variante(evitando) if evitando else PROMPT
+        mensaje = self._pedir(httpx, prompt, texto)
 
         transcurrido = time.monotonic() - inicio
         log.info(

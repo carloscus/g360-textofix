@@ -21,6 +21,7 @@ import os
 from typing import Protocol
 
 from .logsetup import LOGGER_NAME
+from .nvidia import MODELO_90B
 
 log = logging.getLogger(LOGGER_NAME)
 
@@ -28,7 +29,7 @@ log = logging.getLogger(LOGGER_NAME)
 class ProveedorIA(Protocol):
     """Contrato minimo que el corrector necesita de cualquier proveedor."""
 
-    def corregir(self, texto: str) -> str | None: ...
+    def corregir(self, texto: str, evitando: str | None = None) -> str | None: ...
     def disponible(self) -> tuple[bool, str]: ...
     def probar(self, texto: str) -> dict: ...
 
@@ -38,9 +39,34 @@ class ProveedorIA(Protocol):
 
 PROVEEDOR_GEMINI = "gemini"
 PROVEEDOR_NIM = "nvidia"
+# El 90b elegido a mano desde la bandeja (config.json -> modelo_ia).
+PROVEEDOR_NIM_90B = "nvidia-90b"
 # Ollama se retiro del proyecto; el valor queda solo para detectar el .env
 # viejo y avisar, en vez de fallar en silencio.
 PROVEEDOR_OLLAMA_LEGACY = "ollama"
+
+# Las opciones del menu "Modelo de correccion" de la bandeja, en orden.
+# (valor persistido, texto visible)
+OPCIONES_MODELO = [
+    ("auto", "Auto (NVIDIA nemotron-super)"),
+    ("nvidia-90b", "NVIDIA 90b Vision"),
+    ("gemini", "Gemini (nube Google)"),
+]
+
+
+def _eleccion_usuario() -> str:
+    """
+    La eleccion explicita del usuario, si la hay.
+
+    La bandeja (config.json del perfil) manda sobre PROVEEDOR_IA del .env;
+    "auto" no es una eleccion, deja pasar el .env y el autodetect.
+    """
+    from .perfil import leer_modelo_ia
+
+    eleccion = leer_modelo_ia().strip().lower()
+    if eleccion and eleccion != "auto":
+        return eleccion
+    return os.environ.get("PROVEEDOR_IA", "").strip().lower()
 
 
 def seleccion_proveedor() -> ProveedorIA:
@@ -49,15 +75,25 @@ def seleccion_proveedor() -> ProveedorIA:
 
     El orden de decicion:
 
-    1. El usuario pidio explicitamente uno en `PROVEEDOR_IA` (.env).
+    1. El usuario pidio explicitamente uno: en la bandeja (modelo_ia) o en
+       PROVEEDOR_IA (.env). La bandeja manda.
     2. No pidio ninguno: la nube con clave disponible (NIM primero,
        Gemini despues).
     """
-    elegido = os.environ.get("PROVEEDOR_IA", "").strip().lower()
+    elegido = _eleccion_usuario()
 
     if elegido == PROVEEDOR_OLLAMA_LEGACY:
         log.warning("PROVEEDOR_IA=ollama ya no se soporta: se usa el default de nube")
         return _nube_o_mock()
+
+    if elegido == PROVEEDOR_NIM_90B:
+        prov = _nuevo_nim(modelo=MODELO_90B)
+        listo, motivo = prov.disponible()
+        if not listo:
+            log.warning("NVIDIA 90b no esta disponible: %s", motivo)
+            return _nube_o_mock()
+        log.info("proovedor: nvidia 90b por eleccion del usuario")
+        return prov
 
     if elegido == PROVEEDOR_NIM:
         prov = _nuevo_nim()
@@ -77,10 +113,10 @@ def seleccion_proveedor() -> ProveedorIA:
     return _nube_o_mock()
 
 
-def _nuevo_nim() -> ProveedorIA:
+def _nuevo_nim(modelo: str | None = None) -> ProveedorIA:
     from .nvidia import ProveedorNIM
 
-    return ProveedorNIM()
+    return ProveedorNIM(modelo=modelo)
 
 
 def _nuevo_gemini() -> ProveedorIA:

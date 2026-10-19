@@ -115,6 +115,84 @@ def test_ollama_en_el_env_viejo_cae_al_default_de_nube(monkeypatch):
     assert prov_mod.etiqueta(prov) == "nvidia"
 
 
+# --- Eleccion desde la bandeja (config.json -> modelo_ia) -------------------
+
+
+def _perfil_con(monkeypatch, eleccion: str) -> None:
+    from core import perfil
+
+    monkeypatch.setattr(perfil, "leer_modelo_ia", lambda: eleccion)
+
+
+def test_bandeja_90b_fuerza_el_90b(monkeypatch):
+    """La opcion 'NVIDIA 90b' pide el 90b explicito, no el default."""
+    import core.proovedor as prov_mod
+    from core.nvidia import MODELO_90B
+
+    class _NIMFalso:
+        modelo = MODELO_90B
+
+        def disponible(self):
+            return True, ""
+
+    llamado: dict = {}
+
+    def _nuevo(modelo=None):
+        llamado["modelo"] = modelo
+        return _NIMFalso()
+
+    monkeypatch.setattr(prov_mod, "_nuevo_nim", _nuevo)
+    _perfil_con(monkeypatch, "nvidia-90b")
+    monkeypatch.delenv("PROVEEDOR_IA", raising=False)
+
+    prov = prov_mod.seleccion_proveedor()
+
+    assert llamado["modelo"] == MODELO_90B
+    assert prov is not None
+
+
+def test_bandeja_manda_sobre_el_env(monkeypatch):
+    """Si la bandeja eligio Gemini, un PROVEEDOR_IA del .env no lo pisa."""
+    import core.proovedor as prov_mod
+
+    toco_nim: list = []
+    monkeypatch.setattr(prov_mod, "_nuevo_nim", lambda modelo=None: toco_nim.append(1))
+    _perfil_con(monkeypatch, "gemini")
+    monkeypatch.setenv("PROVEEDOR_IA", "nvidia")
+
+    prov = prov_mod.seleccion_proveedor()
+
+    assert prov_mod.etiqueta(prov) == "gemini"
+    assert toco_nim == []  # ni siquiera se consulto NIM
+
+
+def test_auto_deja_pasar_el_env(monkeypatch):
+    """'auto' no es una eleccion: PROVEEDOR_IA del .env sigue mandando."""
+    import core.proovedor as prov_mod
+    from core.nvidia import ProveedorNIM
+
+    class _NIMFalso(ProveedorNIM):
+        modelo = "nvidia/nemotron-3-super-120b-a12b"
+
+        def disponible(self):
+            return True, ""
+
+    monkeypatch.setattr(prov_mod, "_nuevo_nim", lambda modelo=None: _NIMFalso())
+    _perfil_con(monkeypatch, "auto")
+    monkeypatch.setenv("PROVEEDOR_IA", "nvidia")
+
+    prov = prov_mod.seleccion_proveedor()
+    assert prov_mod.etiqueta(prov) == "nvidia"
+
+
+def test_el_menu_trae_las_tres_opciones():
+    from core.perfil import CONFIG_POR_DEFECTO
+    from core.proovedor import OPCIONES_MODELO
+
+    assert [valor for valor, _ in OPCIONES_MODELO] == ["auto", "nvidia-90b", "gemini"]
+    assert CONFIG_POR_DEFECTO["modelo_ia"] == "auto"
+
+
 # --- Guarda de salto de pagina -----------------------------------------------
 # En Word, un salto de pagina (Ctrl+Enter) es un caracter \x0c invisible que
 # viaja dentro del texto seleccionado. Verificado con Word real: si el modelo
