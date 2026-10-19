@@ -91,14 +91,23 @@ def mock_correct(text: str, transform: str) -> str:
     return text
 
 
-def correct(text: str, mode: str, transform: str, modelo: str | None = None) -> str | None:
+def correct(
+    text: str,
+    mode: str,
+    transform: str,
+    modelo: str | None = None,
+    evitando: str | None = None,
+) -> str | None:
     """
     Produce la version corregida del texto.
 
     En modo `mock` no hay IA: devuelve el texto igual (o entrecomillado con
     `wrap`), que es lo que permite validar la mecanica sin gastar API.
 
-    En modo `ia` llama a Gemini. `modelo`, si se da, manda sobre el default.
+    En modo `ia` llama al proveedor elegido. `modelo`, si se da, manda sobre
+    el default. `evitando`, si se da, pide una VARIANTE: otra correccion
+    valida distinta de ese texto (ciclo del mismo atajo).
+
     Si algo falla devuelve None y el llamador conserva el original: fallar
     es siempre preferible a escribir cualquier cosa.
     """
@@ -115,7 +124,7 @@ def correct(text: str, mode: str, transform: str, modelo: str | None = None) -> 
             prov.modelo = modelo
 
         try:
-            return prov.corregir(text)
+            return prov.corregir(text, evitando=evitando)
         except Exception as exc:
             # NUBE -> NUBE: si el proveedor elegido reviento (red, cuota,
             # clave invalida), se reintenta UNA vez con el otro. Si no hay
@@ -130,7 +139,7 @@ def correct(text: str, mode: str, transform: str, modelo: str | None = None) -> 
                 exc,
                 etiqueta(otra),
             )
-            return otra.corregir(text)
+            return otra.corregir(text, evitando=evitando)
 
     raise NotImplementedError(f"modo de correccion desconocido: {mode}")
 
@@ -144,21 +153,34 @@ def run_once(
     transform: str = "roundtrip",
     al_corregir=None,
     modelo: str | None = None,
+    evitando: str | None = None,
+    original_a_corregir: str | None = None,
 ) -> Outcome:
     """
     Ejecuta una correccion sobre lo que este seleccionado en pantalla.
 
     `al_corregir(original, corregido, proceso)` se invoca solo si se llego a
     escribir. `modelo`, si se da, manda sobre el default de `correct()`.
+
+    `evitando` + `original_a_corregir` piden una VARIANTE (ciclo del mismo
+    atajo): se corrige de nuevo `original_a_corregir` (el original real,
+    aunque en pantalla ya este la primera correccion) sin devolver `evitando`.
+
     Los textos nunca se loguean, pero deshacer necesita el par en memoria:
     por eso viajan por el callback y no por el log.
     """
     with com_inicializado():
-        return _ciclo(cfg, mode, transform, al_corregir, modelo)
+        return _ciclo(cfg, mode, transform, al_corregir, modelo, evitando, original_a_corregir)
 
 
 def _ciclo(
-    cfg: Config, mode: str, transform: str, al_corregir, modelo: str | None = None
+    cfg: Config,
+    mode: str,
+    transform: str,
+    al_corregir,
+    modelo: str | None = None,
+    evitando: str | None = None,
+    original_a_corregir: str | None = None,
 ) -> Outcome:
     """El ciclo de la correccion. Ver `run_once`."""
     ctx = foreground_context()
@@ -198,7 +220,16 @@ def _ciclo(
 
     try:
         return _corregir_y_escribir(
-            adapter, ctx, cfg, capture, mode, transform, al_corregir, modelo
+            adapter,
+            ctx,
+            cfg,
+            capture,
+            mode,
+            transform,
+            al_corregir,
+            modelo,
+            evitando,
+            original_a_corregir,
         )
     finally:
         # Siempre, se haya escrito o no: deja el portapapeles como estaba.
@@ -211,12 +242,29 @@ def _ciclo(
 
 
 def _corregir_y_escribir(
-    adapter, ctx, cfg, capture, mode, transform, al_corregir, modelo: str | None = None
+    adapter,
+    ctx,
+    cfg,
+    capture,
+    mode,
+    transform,
+    al_corregir,
+    modelo: str | None = None,
+    evitando: str | None = None,
+    original_a_corregir: str | None = None,
 ) -> Outcome:
-    """Corrige, valida y, si todo cuadra, reemplaza. Ver `run_once`."""
+    """
+    Corrige, valida y, si todo cuadra, reemplaza. Ver `run_once`.
+
+    `original` es lo que hay en pantalla (lo que se pisa y lo que deshacer
+    repondria). `base` es lo que se le pide al modelo: el mismo texto, salvo
+    en el ciclo de variantes, donde es el original de verdad — en pantalla ya
+    esta la primera correccion, y de ahi salen las alternativas.
+    """
     original = capture.text
+    base = original if original_a_corregir is None else original_a_corregir
     try:
-        candidate = correct(original, mode, transform, modelo=modelo)
+        candidate = correct(base, mode, transform, modelo=modelo, evitando=evitando)
     except NotImplementedError:
         feedback.error()
         return Outcome(False, "sin-modo-de-correccion", adapter=adapter.name)
@@ -232,7 +280,14 @@ def _corregir_y_escribir(
         feedback.error()
         return Outcome(False, "sin-respuesta-ia", adapter=adapter.name)
 
-    verdict: Verdict = validate(original, candidate)
+    if evitando is not None and candidate == original:
+        # El modelo devolvio la misma correccion que ya esta puesta: no se
+        # pisa el texto por deporte. El usuario sigue con la que tenia.
+        log.info("el modelo devolvio la misma correccion: sin variante nueva")
+        feedback.no_selection()
+        return Outcome(False, "variante-igual", adapter=adapter.name, chars=len(original))
+
+    verdict: Verdict = validate(base, candidate)
     log.debug("validacion: %s", verdict.reason)
 
     if not verdict.ok:
@@ -323,6 +378,10 @@ def texto_en_pantalla(ctx: WindowContext | None = None) -> str | None:
 
     Se usa para invalidar el bucle de deshacer: si el texto ya no es el que
     dejamos, deshacer escribiria encima de lo que el usuario puso despues.
+
+    Lee DENTRO de `com_inicializado()`: aunque el hilo de los atajos ya
+    trae COM arriba, esta capa no cuesta nada (CoInitialize anidado es un
+    no-op) y protege cualquier llamada desde un hilo que no lo tenga.
     """
     ctx = ctx or foreground_context()
     if ctx is None:
@@ -332,7 +391,10 @@ def texto_en_pantalla(ctx: WindowContext | None = None) -> str | None:
         if adapter is None:
             return None
         leer = getattr(adapter, "_texto_del_control", None)
-        return leer() if callable(leer) else None
+        if not callable(leer):
+            return None
+        with com_inicializado():
+            return leer()
     except Exception:
         return None
 

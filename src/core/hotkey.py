@@ -205,6 +205,9 @@ class EscuchaAtajos:
         self._al_presionar: Callable[[str], None] | None = None
         # Pedido de cambio de atajo encolado desde otro hilo; ver `cambiar`.
         self._pendiente: tuple | None = None
+        # El initializer de COM del hilo: la referencia lo mantiene vivo
+        # (su __del__ des-inicializa COM, ver `_inicializar_com`).
+        self._com = None
 
     def etiquetas(self) -> dict[str, str]:
         return {accion: a.etiqueta or describir_atajo(a) for accion, a in self.atajos.items()}
@@ -377,18 +380,27 @@ class EscuchaAtajos:
             self._ids[id_hotkey] = accion
             log.info("atajo %s -> %s", accion, describir_atajo(atajo))
 
-    def _bucle(self) -> None:
-        # COM una vez en este hilo: UI Automation es COM, y hay que
-        # inicializarlo por hilo. Sin esto, la primera vez que se intenta
-        # leer con UIA en el hilo del atajo fallaria con
-        # "CoInitialize has not been called".
-        # Si COM ya esta inicializado (hilo principal), es inofensivo.
+    def _inicializar_com(self) -> None:
+        """
+        COM una vez en este hilo: UI Automation es COM, y hay que
+        inicializarlo por hilo. Sin esto, la primera lectura con UIA en el
+        hilo del atajo fallaria con "CoInitialize has not been called".
+
+        OJO con guardar la referencia: el initializer inicializa en __init__
+        y DES-inicializa en __del__ (comtypes.CoUninitialize). Si el objeto
+        se descarta, CPython lo recolecta al instante y COM queda apagado
+        otra vez — exactamente el bug que imprimia el consejo de
+        UIAutomationInitializerInThread en cada primer atajo.
+        """
         try:
             import uiautomation as auto
 
-            auto.UIAutomationInitializerInThread()
+            self._com = auto.UIAutomationInitializerInThread()
         except Exception:
             pass
+
+    def _bucle(self) -> None:
+        self._inicializar_com()
 
         msg = _MSG()
         while True:
