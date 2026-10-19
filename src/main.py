@@ -378,12 +378,33 @@ def main(argv: list[str] | None = None) -> int:
             feedback.no_selection()
             bandeja.refrescar()
             return
-        _registrar_si_tocaron()
+
+        texto = texto_en_pantalla()
+        estado.comprobar_cambio(texto)
+
+        # CICLO DE VARIANTES: si lo que hay en pantalla es la correccion que
+        # nosotros escribimos, el MISMO atajo pide una alternativa (hasta
+        # estado.MAX_VARIANTES, una llamada de red por variante). Mas alla
+        # de eso se avisa y no se pide nada mas.
+        evitando = None
+        original_a_corregir = None
+        if modo == MODO_IA and texto is not None and estado.puede_ciclar(texto):
+            if estado.variantes_agotadas():
+                log.info("sin mas variantes: deshace con Ctrl+Shift+Z")
+                feedback.no_selection()
+                bandeja.refrescar()
+                return
+            evitando = texto
+            original_a_corregir = estado.texto_original()
+            log.info("pidiendo una variante de la correccion actual")
+
         outcome = run_once(
             cfg,
             mode=modo,
             transform=args.mock_transform,
             modelo=args.modelo or None,
+            evitando=evitando,
+            original_a_corregir=original_a_corregir,
             al_corregir=lambda o, c, p: estado.registrar_correccion(
                 Correccion(proceso=p, original=o, corregido=c)
             ),

@@ -133,3 +133,52 @@ def test_resumen_muestra_el_estado():
     assert "Demo" in Estado(modo="mock").resumen()
     assert "IA" in Estado(modo="ia").resumen()
     assert Estado(activo=False).resumen() == "Inactivo"
+
+
+# --- Ciclo de variantes ------------------------------------------------------
+
+
+def test_puede_ciclar_si_el_texto_es_el_nuestro(estado):
+    assert estado.puede_ciclar(CORREGIDO)
+
+
+def test_no_puede_ciclar_si_el_usuario_toco_el_texto(estado):
+    estado.comprobar_cambio("El cliente pidio tres cajas!!")
+    assert not estado.puede_ciclar("El cliente pidio tres cajas!!")
+    assert estado.texto_original() is None  # buffer invalidado
+
+
+def test_no_puede_ciclar_sin_correccion():
+    assert not Estado().puede_ciclar("cualquier cosa")
+
+
+def test_no_puede_ciclar_despues_de_deshacer(estado):
+    estado.preparar_deshacer("notepad.exe")
+    assert not estado.puede_ciclar(ORIGINAL)
+
+
+def test_el_ciclo_se_cuenta_por_encadenamiento(estado):
+    """Cada variante encadenada suma; una correccion nueva reinicia."""
+    assert estado._variantes == 0
+    assert not estado.variantes_agotadas()
+
+    estado.registrar_correccion(Correccion("notepad.exe", CORREGIDO, "El cliente pidio 3 cajas."))
+    assert estado._variantes == 1
+    assert not estado.variantes_agotadas()
+
+    estado.registrar_correccion(
+        Correccion(
+            "notepad.exe",
+            "El cliente pidio 3 cajas.",
+            "El cliente pidio tres cajas hoy.",
+        )
+    )
+    assert estado.variantes_agotadas()  # MAX_VARIANTES = 2
+
+    # Correccion de OTRO texto (no encadenada): el conteo vuelve a cero.
+    estado.registrar_correccion(Correccion("notepad.exe", "saludo", "Saludo."))
+    assert estado._variantes == 0
+
+
+def test_texto_original_devuelve_la_base(estado):
+    assert estado.texto_original() == ORIGINAL

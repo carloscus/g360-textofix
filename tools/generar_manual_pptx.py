@@ -278,6 +278,7 @@ def slide_3_bandeja():
         ("Deshacer / Rehacer", "En gris si no hay nada para aplicar."),
         ("Cambiar atajo…", "Valida, registra en caliente y guarda en el perfil."),
         ("Clave API Gemini… / NVIDIA…", "Pide la clave y la guarda cifrada con DPAPI."),
+        ("Modelo de correccion", "Auto / NVIDIA 90b / Gemini, al instante y sin reiniciar."),
         ("Iniciar con Windows", "Registra en HKCU, solo para tu cuenta."),
         ("Salir", "Suelta los atajos y cierra la bandeja."),
     ]

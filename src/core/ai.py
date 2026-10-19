@@ -113,6 +113,23 @@ Texto:
 """
 
 
+def prompt_variante(evitando: str) -> str:
+    """
+    El prompt normal + la instruccion de devolver OTRA correccion.
+
+    Se usa cuando el usuario pide alternativas con el mismo atajo: el texto
+    es el mismo, las reglas son las mismas, pero no se quiere repetir la
+    correccion que ya esta en pantalla.
+    """
+    return (
+        PROMPT
+        + "\n10. Ya existe una correccion valida de este texto:\n    "
+        + evitando
+        + "\n    Devuelve OTRA correccion, distinta a esa, con las mismas "
+        "reglas.\n    No repitas la existente ni comentes por que cambias.\n"
+    )
+
+
 class CorrectorIA:
     """Envoltura del cliente de Gemini con lo minimo que necesita el corrector."""
 
@@ -179,11 +196,13 @@ class CorrectorIA:
 
     # --- Correccion ---------------------------------------------------------
 
-    def corregir(self, texto: str) -> str | None:
+    def corregir(self, texto: str, evitando: str | None = None) -> str | None:
         """
         Devuelve el texto corregido, o None si no se pudo.
 
         None significa "no se sabe": el llamador conserva el original.
+        Con `evitando` se pide una variante: mismo texto, otra correccion
+        valida distinta de la que ya esta puesta.
         """
         listo, motivo = self.disponible()
         if not listo:
@@ -201,7 +220,8 @@ class CorrectorIA:
             thinking_config=types.ThinkingConfig(thinking_level="low"),
         )
 
-        respuesta = self._pedir(cliente, config, texto)
+        prompt = prompt_variante(evitando) if evitando else PROMPT
+        respuesta = self._pedir(cliente, config, texto, prompt)
 
         transcurrido = time.monotonic() - inicio
         candidato = self._texto_de(respuesta)
@@ -214,7 +234,7 @@ class CorrectorIA:
         )
         return candidato
 
-    def _pedir(self, cliente, config, texto: str):
+    def _pedir(self, cliente, config, texto: str, prompt: str = PROMPT):
         """
         Llama al modelo, esperando si se topa con el limite de cuota.
 
@@ -229,7 +249,7 @@ class CorrectorIA:
             try:
                 return cliente.models.generate_content(
                     model=self.modelo,
-                    contents=PROMPT + texto,
+                    contents=prompt + texto,
                     config=config,
                 )
             except Exception as exc:

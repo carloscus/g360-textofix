@@ -28,6 +28,11 @@ MOTIVOS = {
     "nunca-corregido": "todavia no se corrigio nada",
 }
 
+# Variantes alternativas por atajo: la mejor correccion + 2 alternativas.
+# Cada variante es una llamada de red aparte, pedida solo si el usuario
+# insiste apretando el atajo sobre el texto ya corregido.
+MAX_VARIANTES = 2
+
 
 @dataclass(frozen=True)
 class Correccion:
@@ -52,12 +57,26 @@ class Estado:
     modo: str = "mock"
     _correccion: Correccion | None = None
     _deshecho: bool = False
+    # Variantes pedidas sobre la correccion vigente (ver puede_ciclar).
+    _variantes: int = 0
     ultima_razon: str = ""
 
     # --- Correccion ---------------------------------------------------------
 
     def registrar_correccion(self, correccion: Correccion) -> None:
-        """Guarda la ultima correccion como deshacible."""
+        """
+        Guarda la ultima correccion como deshacible.
+
+        Si la nueva correccion parte del texto que nosotros escribimos (es
+        una variante del mismo pedido), se cuenta para limitar el ciclo;
+        cualquier otra correccion arranca el conteo de cero.
+        """
+        encadenada = (
+            self._correccion is not None
+            and correccion.proceso == self._correccion.proceso
+            and correccion.original == self._correccion.corregido
+        )
+        self._variantes = (self._variantes + 1) if encadenada else 0
         self._correccion = correccion
         self._deshecho = False
         self.ultima_razon = MOTIVOS["ok"]
@@ -86,6 +105,29 @@ class Estado:
 
     def hay_correccion(self) -> bool:
         return self._correccion is not None
+
+    # --- Variantes (el mismo atajo, otra correccion) ------------------------
+
+    def puede_ciclar(self, texto_actual: str) -> bool:
+        """
+        Si lo que hay en pantalla es exactamente lo que nosotros escribimos.
+
+        Es el mismo criterio que protege a deshacer: si el usuario toco el
+        texto, no se pide variante de nada (se corrije lo que hay).
+        """
+        return (
+            self._correccion is not None
+            and not self._deshecho
+            and texto_actual == self._correccion.escrito
+        )
+
+    def variantes_agotadas(self) -> bool:
+        """Si ya se dieron las MAX_VARIANTES alternativas de esta correccion."""
+        return self._variantes >= MAX_VARIANTES
+
+    def texto_original(self) -> str | None:
+        """El original de la correccion vigente: la base para pedir variantes."""
+        return self._correccion.original if self._correccion is not None else None
 
     # --- Deshacer / rehacer -------------------------------------------------
 

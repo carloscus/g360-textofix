@@ -27,7 +27,7 @@ from core.ai import CuotaAgotada
 class _NIMRota:
     modelo = "meta/llama-3.2-90b-vision-instruct"
 
-    def corregir(self, texto):
+    def corregir(self, texto, evitando=None):
         raise CuotaAgotada("cuota agotada")
 
     def disponible(self):
@@ -37,7 +37,7 @@ class _NIMRota:
 class _GeminiOK:
     modelo = "gemini-2.5-flash-lite"
 
-    def corregir(self, texto):
+    def corregir(self, texto, evitando=None):
         return "corregido por gemini"
 
     def disponible(self):
@@ -47,7 +47,7 @@ class _GeminiOK:
 class _GeminiRota:
     modelo = "gemini-2.5-flash-lite"
 
-    def corregir(self, texto):
+    def corregir(self, texto, evitando=None):
         raise CuotaAgotada("cuota agotada")
 
     def disponible(self):
@@ -57,7 +57,7 @@ class _GeminiRota:
 class _NimOK:
     modelo = "meta/llama-3.2-90b-vision-instruct"
 
-    def corregir(self, texto):
+    def corregir(self, texto, evitando=None):
         return "corregido por nvidia"
 
     def disponible(self):
