@@ -2,7 +2,7 @@
 name = "g360-textofix"
 version = "1.0.0"
 description = "Corrector de texto para Windows: atajo global, captura de la seleccion y reemplazo en el lugar."
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 dependencies = [
     "uiautomation>=2.0.29",
     "pywin32>=312",
@@ -37,7 +37,7 @@ pythonpath = ["src"]
 testpaths = ["tests"]
 
 [tool.ruff]
-target-version = "py311"
+target-version = "py312"
 line-length = 100
 
 [tool.ruff.lint]
