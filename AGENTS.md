@@ -29,6 +29,7 @@ uv sync
 
 - `src/`
 - `tests/`
+- `g360/`
 - `src/main.py`
 
 ## Variables de entorno
