@@ -106,6 +106,14 @@ class Estado:
     def hay_correccion(self) -> bool:
         return self._correccion is not None
 
+    # --- Latencia -----------------------------------------------------------
+
+    def registrar_latencia(self, proveedor: str, segundos: float) -> None:
+        """Agrega una medicion al tracker de latencia."""
+        from .latencia import LATENCIA_TRACKER
+
+        LATENCIA_TRACKER.registrar(proveedor, segundos)
+
     # --- Variantes (el mismo atajo, otra correccion) ------------------------
 
     def puede_ciclar(self, texto_actual: str) -> bool:
@@ -188,7 +196,13 @@ class Estado:
         if not self.activo:
             return "Inactivo"
         modo = "IA" if self.modo == "ia" else "Demo"
-        return f"Activo · Modo {modo}"
+        from .latencia import LATENCIA_TRACKER
+
+        proveedor = LATENCIA_TRACKER.ultimo_provedor() or "—"
+        extra = LATENCIA_TRACKER.resumen(proveedor)
+        if extra:
+            return f"Activo · Modo {modo} · {extra}"
+        return f"Activo · Modo {modo} · {proveedor}"
 
 
 def dataclass_replace_escrito(correccion: Correccion, texto: str) -> Correccion:

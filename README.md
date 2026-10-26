@@ -53,6 +53,20 @@ API, pedida solo si insistís. `Ctrl + Shift + Z` vuelve a la anterior.
 | No hay nada seleccionado | No se toca nada. Aviso suave de sin selección. |
 | Algo falla (red, respuesta inválida, app protegida) | El original queda intacto. Golpe grave de error. |
 
+### Latencia en la bandeja
+
+En la linea de estado aparece el proveedor actual y su latencia promedio
+movil (ultimas 5 respuestas):
+
+```
+Activo · Modo IA · nvidia 1.2s
+Activo · Modo IA · gemini 4.3s
+Activo · Modo IA · nvidia 9.8s (lent@)   ← avisa cuando supera 8s
+```
+
+Si un proveedor se pone lento, la bandeja lo indica con `(lent@)`. La
+correccion sigue funcionando; solo es una senal visual.
+
 Se equivocó y querés volver atrás: `Ctrl + Shift + Z`. Lo querés reponer:
 `Ctrl + Shift + R`.
 

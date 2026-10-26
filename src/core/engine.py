@@ -115,6 +115,9 @@ def correct(
         return mock_correct(text, transform)
 
     if mode == "ia":
+        import time
+
+        from .latencia import LATENCIA_TRACKER
         from .proovedor import etiqueta, otra_nube, seleccion_proveedor
 
         prov = seleccion_proveedor()
@@ -123,8 +126,9 @@ def correct(
         if modelo:
             prov.modelo = modelo
 
+        inicio = time.monotonic()
         try:
-            return prov.corregir(text, evitando=evitando)
+            resultado = prov.corregir(text, evitando=evitando)
         except Exception as exc:
             # NUBE -> NUBE: si el proveedor elegido reviento (red, cuota,
             # clave invalida), se reintenta UNA vez con el otro. Si no hay
@@ -133,13 +137,22 @@ def correct(
             otra = otra_nube(prov)
             if otra is None:
                 raise
+            seg = time.monotonic() - inicio
+            LATENCIA_TRACKER.registrar(etiqueta(prov), seg)
             log.warning(
                 "%s fallo (%s): se reintenta con %s",
                 etiqueta(prov),
                 exc,
                 etiqueta(otra),
             )
-            return otra.corregir(text, evitando=evitando)
+            inicio = time.monotonic()
+            resultado = otra.corregir(text, evitando=evitando)
+            seg = time.monotonic() - inicio
+            LATENCIA_TRACKER.registrar(etiqueta(otra), seg)
+        else:
+            seg = time.monotonic() - inicio
+            LATENCIA_TRACKER.registrar(etiqueta(prov), seg)
+        return resultado
 
     raise NotImplementedError(f"modo de correccion desconocido: {mode}")
 
