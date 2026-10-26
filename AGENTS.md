@@ -11,12 +11,13 @@ Corrector de texto para Windows: atajo global, captura de la selección y reempl
 Un solo comando deja el repo listo y verifica que todo esté en verde:
 
 ```bash
-uv sync
+uv sync --extra ai
 uv run pytest
 ```
 
 - Stack: python (uv)
 - Tests: pytest en `tests/`
+- Extra `ai`: necesario para los tests de variantes (google-genai, httpx)
 
 ## Instalación
 
