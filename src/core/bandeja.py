@@ -31,6 +31,7 @@ from .perfil import (
     ruta_perfil,
     tiene_inicio_con_windows,
 )
+from .ping import probar_gemini, probar_nvidia
 
 log = logging.getLogger(LOGGER_NAME)
 
@@ -251,12 +252,16 @@ class Bandeja:
             self.refrescar()
             return
         if probar is not None:
-            # Una llamada minima ahora, no en la primera correccion: una clave
-            # mala se entiende aqui, con el diagnostico (401, 404, 429).
-            from .ping import imprimir
+            from .ping import linea, sin_clave
 
             print("Verificando con una llamada real...")
-            imprimir(probar(nueva))
+            resultado = probar(nueva)
+            if sin_clave(resultado):
+                print(f"[SIN CLAVE] No se pudo verificar: {resultado.get('etiqueta', '')}")
+            else:
+                etiqueta = linea(resultado)
+                print(f"Verificación exitosa: {etiqueta}")
+                print("La clave es válida y funcional.")
         self.refrescar()
 
     def _cambiar_atajo(self, *_):
@@ -375,6 +380,49 @@ class Bandeja:
 
 def hay_icono_disponible() -> bool:
     return ruta_icono() is not None
+
+
+def _tener_estado_clave_gemini() -> tuple[bool, str]:
+    """Retorna (tiene_clave, descripcion) del estado de la clave Gemini.
+
+    Retorna:
+        (True, "configurada") - Hay clave en .env/DPAPI
+        (True, "ok") - Clave válida y funciona
+        (False, "no-configurada") - No hay clave configurada
+        (False, "inválida") - Hay clave pero no funciona
+    """
+    clave = leer_clave_api()
+    if not clave:
+        return False, "no-configurada"
+
+    # Probar la clave
+    try:
+        resultado = probar_gemini(clave)
+        if resultado["ok"]:
+            return True, "configurada"
+        else:
+            return False, f"inválida: {resultado['detalle']}"
+    except Exception as e:
+        return False, f"error: {str(e)[:50]}"
+
+
+def _tener_estado_clave_nim() -> tuple[bool, str]:
+    """Retorna (tiene_clave, descripcion) del estado de la clave NVIDIA NIM.
+
+    Igual que la anterior pero para NIM.
+    """
+    clave = leer_clave_nim()
+    if not clave:
+        return False, "no-configurada"
+
+    try:
+        resultado = probar_nvidia(clave)
+        if resultado["ok"]:
+            return True, "configurada"
+        else:
+            return False, f"inválida: {resultado['detalle']}"
+    except Exception as e:
+        return False, f"error: {str(e)[:50]}"
 
 
 def clave_configurada() -> bool:
