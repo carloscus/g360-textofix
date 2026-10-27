@@ -380,6 +380,11 @@ def main(argv: list[str] | None = None) -> int:
             return
 
         texto = texto_en_pantalla()
+        if not texto or not texto.strip():
+            log.debug("atajo ignorado: no hay texto seleccionado")
+            feedback.no_selection()
+            bandeja.refrescar()
+            return
         estado.comprobar_cambio(texto)
 
         # CICLO DE VARIANTES: si lo que hay en pantalla es la correccion que
