@@ -222,7 +222,9 @@ uv run python src/main.py --modo ia
 
 ```powershell
 uv sync --extra ai --extra pack
-uvx pyinstaller textofix.spec --noconfirm
+# uv run y no uvx: el .spec verifica `uiautomation` en el entorno, y uvx corre
+# en un entorno aislado del proyecto que no lo tiene.
+uv run pyinstaller textofix.spec --noconfirm
 ```
 
 Sin el extra `ai`, `uv sync` **desinstala** `google-genai` y el `.exe` sale sin
