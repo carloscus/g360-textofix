@@ -416,6 +416,22 @@ def main(argv: list[str] | None = None) -> int:
         )
         if not outcome.ok:
             log.info("sin correccion que deshacer: %s", outcome.reason)
+            # Cuota agotada: popup con la causa y que debe hacer. Solo si no
+            # hay terminal donde escribir (el .exe vive en segundo plano).
+            if outcome.reason == "cuota-agotada":
+                from core import consola
+
+                aviso = (
+                    "Cuota de Gemini agotada.\n\n"
+                    "La versión gratuita permite 5 correcciones por minuto. "
+                    "Espera unos minutos e intentá de nuevo, o activá facturación "
+                    "en Google AI Studio para quitar el límite.\n\n"
+                    "El texto original se conservó intacto."
+                )
+                if consola.sin_salida():
+                    consola.avisar("g360-textofix — cuota agotada", aviso)
+                else:
+                    print(f"\n[g360-textofix] {aviso}")
         bandeja.refrescar()
 
     def _deshacer_rehacer(al_deshacer: bool) -> None:

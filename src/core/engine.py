@@ -17,6 +17,7 @@ from dataclasses import dataclass
 
 from . import feedback
 from .adapters import Capture, build_adapters, pick_adapter
+from .ai import CuotaAgotada
 from .config import Config
 from .guards import Verdict, validate
 from .logsetup import LOGGER_NAME, describe
@@ -352,8 +353,14 @@ def _corregir_y_escribir(
     except NotImplementedError:
         feedback.error()
         return Outcome(False, "sin-modo-de-correccion", adapter=adapter.name)
+    except CuotaAgotada as exc:
+        # La cuota se agoto: el original queda intacto y el usuario recibe
+        # un popup con la causa y que debe hacer (esperar o activar facturacion).
+        log.warning("la correccion fallo por cuota: %s", exc)
+        feedback.error()
+        return Outcome(False, "cuota-agotada", adapter=adapter.name, chars=len(original))
     except Exception as exc:
-        # Falta la clave, se agoto la cuota, fallo la red: cualquier cosa.
+        # Falta la clave, se cayo la red, fallo la nube: cualquier cosa.
         # El original se conserva intacto.
         log.warning("la correccion fallo: %s", exc)
         feedback.error()

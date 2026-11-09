@@ -152,3 +152,68 @@ def test_variante_igual_no_pisa_el_texto(monkeypatch):
     assert outcome.reason == "variante-igual"
     assert escrituras == []  # el texto del usuario queda como estaba
     assert tonos == ["procesando", "sin"]
+
+
+def test_cuota_agotada_devuelve_reason_claro(monkeypatch):
+    """
+    Cuando la nube devuelve CuotaAgotada, el engine no propaga la excepcion:
+    devuelve Outcome con reason="cuota-agotada" para que el llamador muestre
+    un popup en vez de un error genérico.
+    """
+    from core.ai import CuotaAgotada
+
+    escrituras: list = []
+    tonos: list = []
+
+    class _Adapter:
+        name = "generic"
+
+        def read(self, ctx):
+            return _Capture()
+
+        def write(self, ctx, capture, texto):
+            escrituras.append(texto)
+
+        def release(self, capture):
+            pass
+
+    class _Feedback:
+        @staticmethod
+        def ok():
+            tonos.append("ok")
+
+        @staticmethod
+        def error():
+            tonos.append("error")
+
+        @staticmethod
+        def no_selection():
+            tonos.append("sin")
+
+        @staticmethod
+        def procesando():
+            tonos.append("procesando")
+
+    class _Capture:
+        text = "texto con error."
+
+    def _lanza_cuota(*_a, **_k):
+        raise CuotaAgotada("Se agoto la cuota GRATUITA de Gemini.")
+
+    monkeypatch.setattr(engine, "correct", _lanza_cuota)
+    monkeypatch.setattr(engine, "feedback", _Feedback)
+
+    outcome = engine._corregir_y_escribir(
+        _Adapter(),
+        object(),
+        Config.from_env(),
+        _Capture(),
+        "ia",
+        "roundtrip",
+        None,
+    )
+
+    assert outcome.reason == "cuota-agotada"
+    assert outcome.ok is False
+    assert escrituras == []  # nunca se escribe nada
+    assert tonos == ["procesando", "error"]
