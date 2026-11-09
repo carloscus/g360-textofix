@@ -58,11 +58,25 @@ _RECHAZOS_CONVERSACIONALES = (
 
 _DIGITS = re.compile(r"\d+")
 _WHITESPACE = re.compile(r"\s+")
+# URLs con esquema (http/https/ftp) y correos. El prompt ya pide no tocarlos;
+# esta guarda es la red de atras: si la respuesta los cambio, no se escribe.
+_URLS = re.compile(r"https?://\S+|ftp://\S+")
+_CORREOS = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")
 
 
 def extract_digits(text: str) -> tuple[str, ...]:
     """Secuencia de numeros del texto, en orden. Base de la guarda de cifras."""
     return tuple(_DIGITS.findall(text))
+
+
+def extract_urls(text: str) -> tuple[str, ...]:
+    """Secuencia de URLs con esquema del texto, en orden (patron extract_digits)."""
+    return tuple(_URLS.findall(text))
+
+
+def extract_correos(text: str) -> tuple[str, ...]:
+    """Secuencia de correos del texto, en orden (patron extract_digits)."""
+    return tuple(_CORREOS.findall(text))
 
 
 def normalize(text: str) -> str:
@@ -129,6 +143,16 @@ def validate(original: str, candidate: str | None) -> Verdict:
 
     if extract_digits(original) != extract_digits(candidate):
         return Verdict(False, False, "cifras-modificadas")
+
+    # URLs y correos: el modelo a veces los "corrige" (parte un enlace, toca
+    # un dominio). Si el original los tenia y la secuencia difiere, no se
+    # escribe. Un original sin ellos produce dos tuplas vacias y no aplica.
+    # Si el original tenia una URL ya rota, el rechazo es conservador a
+    # proposito: ante la duda, no se escribe.
+    if extract_urls(original) != extract_urls(candidate) or extract_correos(
+        original
+    ) != extract_correos(candidate):
+        return Verdict(False, False, "urls-correos-modificados")
 
     # Salto de pagina (Ctrl+Enter en Word, un caracter \x0c invisible que
     # viaja dentro del texto seleccionado). Una correccion legitima nunca

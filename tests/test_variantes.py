@@ -46,7 +46,7 @@ def test_nvidia_con_evitando_usa_el_prompt_de_variante(monkeypatch):
 
 
 def test_gemini_con_evitando_usa_el_prompt_de_variante(monkeypatch):
-    from core.ai import CorrectorIA
+    from core.ai import CorrectorIA, envolver_texto
 
     recibido: dict = {}
 
@@ -68,7 +68,9 @@ def test_gemini_con_evitando_usa_el_prompt_de_variante(monkeypatch):
 
     assert salida == "saludo"
     assert "OTRA correccion" in recibido["contents"]
-    assert recibido["contents"].endswith("hola")
+    # El texto llega entre los marcadores de DATO: deja de ser el final
+    # plano del prompt.
+    assert recibido["contents"].endswith(envolver_texto("hola"))
 
 
 def test_correct_pasa_el_evitando_al_proveedor(monkeypatch):
@@ -126,6 +128,10 @@ def test_variante_igual_no_pisa_el_texto(monkeypatch):
         def no_selection():
             tonos.append("sin")
 
+        @staticmethod
+        def procesando():
+            tonos.append("procesando")
+
     class _Capture:
         text = "ya corregido."
 
@@ -145,4 +151,4 @@ def test_variante_igual_no_pisa_el_texto(monkeypatch):
 
     assert outcome.reason == "variante-igual"
     assert escrituras == []  # el texto del usuario queda como estaba
-    assert tonos == ["sin"]
+    assert tonos == ["procesando", "sin"]

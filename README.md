@@ -65,7 +65,9 @@ Activo · Modo IA · nvidia 9.8s (lent@)   ← avisa cuando supera 8s
 ```
 
 Si un proveedor se pone lento, la bandeja lo indica con `(lent@)`. La
-correccion sigue funcionando; solo es una senal visual.
+correccion sigue funcionando; solo es una senal visual. Al apretar el atajo se
+emite un **tono corto de "procesando"** que avisa que la corrección va por la
+nube y puede tardar varios segundos.
 
 Se equivocó y querés volver atrás: `Ctrl + Shift + Z`. Lo querés reponer:
 `Ctrl + Shift + R`.
@@ -456,6 +458,7 @@ respuesta si:
 | Bloque de código o preámbulo ("Aquí tienes…") | Pegar basura en el documento |
 | La respuesta crece >2× o cae <30% | Parafrasear en vez de corregir |
 | **Las cifras cambian** | Que el modelo invente o altere montos, fechas o códigos |
+| **Las URLs o correos cambian** | Que el modelo "corrige" parte de un enlace o rompe un correo electrónico |
 | El texto no cambió | Pisar el formato sin necesidad |
 
 **Las guardas de Office**:
@@ -501,6 +504,11 @@ es peor que fallar.
 **Privacidad**:
 
 - **No hay historial**: no se guarda ninguna corrección.
+- **El cache vive solo en memoria** y se pierde al cerrar; nunca toca disco,
+  coherente con la política de no-historial. Las mejoras de rendimiento
+  (max_tokens dinámico, temperatura 0.1 y keep-alive del cliente NIM) viven
+  en el mismo ambito sin salir a logs ni archivos.
+- **Anti-inyección**: el texto va entre marcadores `<<<TEXTO>>>`/`<<<FIN>>>` declarados en el prompt; lo que contiene es DATO, nunca instrucción a obedecer.
 - **Los logs no contienen texto**: solo longitud y un hash (`len=42 sha=3f9a1c2b`).
 - **El portapapeles se restaura siempre**, haya escrito o no. Leer la selección de
   muchas apps exige copiarla, así que si la corrección se rechaza el portapapeles

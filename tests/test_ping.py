@@ -194,17 +194,15 @@ def test_diagnostico_reconoce_cuota_por_el_mensaje_propio():
     assert "la clave sirve" in ping._diagnostico(CuotaAgotada(mensaje))
 
 
-def test_nim_401_corta_la_cadena_sin_gastar_el_respaldo():
+def test_nim_401_corta_la_cadena_sin_gastar_el_respaldo(monkeypatch):
     """Clave mala: el modelo de respaldo usa la misma, no se llama al segundo."""
     httpx = pytest.importorskip("httpx")
+    import core.nvidia as nvidia
     from core.nvidia import NIMCorrupta, ProveedorNIM
 
     llamadas: list[str] = []
 
-    class _HttpxFalso:
-        TimeoutException = httpx.TimeoutException
-        HTTPStatusError = httpx.HTTPStatusError
-
+    class _ClienteFalso:
         @staticmethod
         def post(url, **kwargs):
             llamadas.append(url)
@@ -212,6 +210,15 @@ def test_nim_401_corta_la_cadena_sin_gastar_el_respaldo():
             raise httpx.HTTPStatusError(
                 "401", request=req, response=httpx.Response(401, request=req)
             )
+
+    class _HttpxFalso:
+        TimeoutException = httpx.TimeoutException
+        HTTPStatusError = httpx.HTTPStatusError
+        Client = _ClienteFalso
+
+    # El cliente compartido es de modulo: sin resetearlo, un test anterior
+    # dejaria cacheado un cliente real y el fake nunca entraria.
+    monkeypatch.setattr(nvidia, "_cliente_http", None)
 
     prov = ProveedorNIM(api_key="mala", timeout_s=1)
     with pytest.raises(NIMCorrupta):

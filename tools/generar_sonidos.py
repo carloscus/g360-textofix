@@ -91,6 +91,10 @@ def principal() -> None:
         ),
     )
 
+    # procesando: un blip corto y grave (A3), mas leve que ok/error: dice
+    # que la correccion va por la nube y puede tardar, sin asustar.
+    _wav("procesando.wav", _nota(220.0, 80, amp=0.30, arm=0.20, tau=0.06))
+
 
 if __name__ == "__main__":
     principal()

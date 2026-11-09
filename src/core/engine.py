@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import threading
+from collections import OrderedDict
 from dataclasses import dataclass
 
 from . import feedback
@@ -21,6 +23,14 @@ from .logsetup import LOGGER_NAME, describe
 from .winapi import WindowContext, foreground_context, puede_inyectar
 
 log = logging.getLogger(LOGGER_NAME)
+
+# Lock global del motor. El lock de hotkey.py es POR ACCION: corregir (3 s de
+# red) y deshacer pueden solaparse, y los dos escriben sobre el mismo control.
+# Este lock serializa los unicos dos caminos que escriben (run_once y
+# aplicar_texto). Es bloqueante a proposito: el deshacer espera y se ejecuta
+# despues; las guardas de estado.py y la revalidacion de contexto hacen el
+# resto seguro. texto_en_pantalla NO lo toma: solo lee.
+_motor_lock = threading.Lock()
 
 
 @contextlib.contextmanager
@@ -70,6 +80,45 @@ class Outcome:
     reason: str
     adapter: str = ""
     chars: int = 0
+
+
+# --- Cache LRU de correcciones ------------------------------------------------
+# Deshacer -> corregir de nuevo el mismo texto repetia la llamada de red.
+# El cache la vuelve instantanea y ahorra cuota. Vive SOLO en memoria (nunca
+# toca disco, se pierde al cerrar), coherente con la politica de no-historial.
+# La clave incluye proveedor y modelo: cada nube corrige distinto, y el
+# resultado de una no vale para la otra.
+
+_CACHE_MAX = 32
+_cache: OrderedDict[tuple, str] = OrderedDict()
+_cache_lock = threading.Lock()
+
+
+def _cache_buscar(etiqueta_prov: str, modelo: str, texto: str) -> str | None:
+    """El candidato cacheado, si lo hay. Renueva la posicion (LRU)."""
+    clave = (etiqueta_prov, modelo, texto)
+    with _cache_lock:
+        if clave not in _cache:
+            return None
+        _cache.move_to_end(clave)
+        return _cache[clave]
+
+
+def _cache_guardar(etiqueta_prov: str, modelo: str, texto: str, candidato: str) -> None:
+    """Guarda un exito; si supera el maximo, expulsa el menos usado."""
+    clave = (etiqueta_prov, modelo, texto)
+    with _cache_lock:
+        _cache[clave] = candidato
+        _cache.move_to_end(clave)
+        while len(_cache) > _CACHE_MAX:
+            _cache.popitem(last=False)
+
+
+def cache_vaciar() -> None:
+    """Vacia el cache. Publico para los tests: el estado de modulo sobrevive
+    entre tests y contaminaria los fakes de proveedor."""
+    with _cache_lock:
+        _cache.clear()
 
 
 # --- Corrector ---------------------------------------------------------------
@@ -126,6 +175,15 @@ def correct(
         if modelo:
             prov.modelo = modelo
 
+        # Las variantes (evitando) piden OTRA correccion a proposito: siempre
+        # van a red y nunca cachean. Los guards corren despues, igual que sin
+        # cache: la validacion sigue siendo determinista.
+        usar_cache = evitando is None
+        if usar_cache:
+            cacheado = _cache_buscar(etiqueta(prov), prov.modelo, text)
+            if cacheado is not None:
+                return cacheado
+
         inicio = time.monotonic()
         try:
             resultado = prov.corregir(text, evitando=evitando)
@@ -149,9 +207,15 @@ def correct(
             resultado = otra.corregir(text, evitando=evitando)
             seg = time.monotonic() - inicio
             LATENCIA_TRACKER.registrar(etiqueta(otra), seg)
+            # El exito se cachea bajo la identidad del que lo produjo.
+            if usar_cache and resultado is not None:
+                _cache_guardar(etiqueta(otra), otra.modelo, text, resultado)
         else:
             seg = time.monotonic() - inicio
             LATENCIA_TRACKER.registrar(etiqueta(prov), seg)
+            # Solo exitos (no None): un fallo no se memoriza.
+            if usar_cache and resultado is not None:
+                _cache_guardar(etiqueta(prov), prov.modelo, text, resultado)
         return resultado
 
     raise NotImplementedError(f"modo de correccion desconocido: {mode}")
@@ -182,7 +246,9 @@ def run_once(
     Los textos nunca se loguean, pero deshacer necesita el par en memoria:
     por eso viajan por el callback y no por el log.
     """
-    with com_inicializado():
+    # El lock global cubre TODO el ciclo (lectura + red + escritura): es el
+    # que impide que un deshacer simultaneo pise el mismo control.
+    with _motor_lock, com_inicializado():
         return _ciclo(cfg, mode, transform, al_corregir, modelo, evitando, original_a_corregir)
 
 
@@ -276,6 +342,11 @@ def _corregir_y_escribir(
     """
     original = capture.text
     base = original if original_a_corregir is None else original_a_corregir
+    if mode == "ia":
+        # La correccion por nube puede tardar 1-15 s sin ninguna senal. El
+        # blip dice que el atajo se escucho y algo viene; el mock es
+        # instantaneo y sonar ahi seria solo ruido.
+        feedback.procesando()
     try:
         candidate = correct(base, mode, transform, modelo=modelo, evitando=evitando)
     except NotImplementedError:
@@ -342,7 +413,17 @@ def aplicar_texto(texto: str) -> Outcome:
     devolver el texto a un estado anterior. Comparte el camino de lectura y
     escritura con la correccion, asi que respeta las mismas garantias: si no
     hay seleccion, no se escribe nada.
+
+    Toma el lock global del motor: puede llegar mientras corre una
+    correccion (3 s de red), y los dos escriben sobre el mismo control. El
+    deshacer queda bloqueante a proposito: espera y se ejecuta despues.
     """
+    with _motor_lock:
+        return _aplicar_texto_bloqueado(texto)
+
+
+def _aplicar_texto_bloqueado(texto: str) -> Outcome:
+    """El cuerpo de `aplicar_texto`, ya bajo el lock global del motor."""
     ctx = foreground_context()
     if ctx is None:
         feedback.error()
