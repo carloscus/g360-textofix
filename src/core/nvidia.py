@@ -28,9 +28,15 @@ from __future__ import annotations
 
 import logging
 import os
+import threading
 import time
 
 from .logsetup import LOGGER_NAME, describe
+
+# Importar aqui a nivel modulo para que _pedir_un_modelo y corregir compartan
+# las mismas funciones; evitaria el "import local" que dejo el reviewer como
+# olor de diseno. La importacion es barata (modulo ya cargado por engine.py).
+from .ai import PROMPT, envolver_texto, prompt_variante  # mismo prompt conservador
 
 log = logging.getLogger(LOGGER_NAME)
 
@@ -47,6 +53,30 @@ MODELOS_DE_REPALDO = [MODELO_90B]
 
 class NIMCorrupta(RuntimeError):
     """La API de NVIDIA reviento (clave invalida, sin red, cuota)."""
+
+
+# Cliente HTTP compartido, a nivel de MODULO y no de instancia:
+# ProveedorNIM se instancia nuevo en cada correccion (ver
+# proovedor.seleccion_proveedor), asi que un cliente por instancia moriria
+# con ella y cada correccion pagaria de nuevo el handshake TLS (~300 ms).
+# Un solo cliente de modulo reusa la conexion entre correcciones. El lock
+# protege solo la CREACION perezosa (httpx es dependencia del extra "ai" y
+# puede faltar); los requests en si son thread-safe en httpx.Client. El
+# timeout se pasa por request, no por cliente, porque cada proveedor tiene
+# el suyo.
+_cliente_http = None
+_cliente_lock = threading.Lock()
+
+
+def _obtener_cliente(httpx):
+    """El cliente HTTP compartido, creado al primer uso."""
+    global _cliente_http
+    if _cliente_http is not None:
+        return _cliente_http
+    with _cliente_lock:
+        if _cliente_http is None:
+            _cliente_http = httpx.Client()
+    return _cliente_http
 
 
 class ProveedorNIM:
@@ -111,8 +141,6 @@ class ProveedorNIM:
             raise NIMCorrupta(motivo)
 
         import httpx
-
-        from .ai import PROMPT, prompt_variante  # mismo prompt conservador
 
         inicio = time.monotonic()
         prompt = prompt_variante(evitando) if evitando else PROMPT
@@ -181,14 +209,20 @@ class ProveedorNIM:
 
     def _pedir_un_modelo(self, httpx, modelo: str, prompt: str, texto: str) -> str | None:
         """Una sola llamada a un modelo. Devuelve el texto, o None si no hay."""
+        # Temperature baja igual que Gemini (0.1): un corrector debe ser
+        # determinista, no creativo. max_tokens dinamico: con los 500 fijos,
+        # un texto largo llegaba truncado y la guarda de ratio rechazaba la
+        # respuesta; el cap de 4000 evita un desvio del modelo.
         base = {
             "model": modelo,
             "messages": [
                 {"role": "system", "content": prompt},
-                {"role": "user", "content": texto},
+                # El texto va entre marcadores (ver envolver_texto): lo que
+                # el usuario selecciono es DATO, aunque contenga ordenes.
+                {"role": "user", "content": envolver_texto(texto)},
             ],
-            "max_tokens": 500,
-            "temperature": 0.5,
+            "max_tokens": max(500, min(len(texto) * 2 + 200, 4000)),
+            "temperature": 0.1,
             "top_p": 1.0,
         }
         headers = {
@@ -200,12 +234,19 @@ class ProveedorNIM:
             eleccion = (resp.json().get("choices") or [{}])[0]
             return (eleccion.get("message") or {}).get("content", "").strip() or None
 
+        # Cliente persistente (keep-alive): evita pagar el handshake TLS en
+        # cada correccion. El timeout va por request: es del proveedor, no
+        # del cliente compartido.
+        cliente = _obtener_cliente(httpx)
+
         # Primero con thinking apagado: corrige igual y gasta la mitad.
         con_thinking = {**base, "chat_template_kwargs": {"thinking": False}}
-        respuesta = httpx.post(self.url, headers=headers, json=con_thinking, timeout=self.timeout_s)
+        respuesta = cliente.post(
+            self.url, headers=headers, json=con_thinking, timeout=self.timeout_s
+        )
         if respuesta.status_code == 400:
             # El modelo no conoce el parametro: se reintenta basico.
-            respuesta = httpx.post(self.url, headers=headers, json=base, timeout=self.timeout_s)
+            respuesta = cliente.post(self.url, headers=headers, json=base, timeout=self.timeout_s)
         respuesta.raise_for_status()
         mensaje = _contenido(respuesta)
 
@@ -213,7 +254,7 @@ class ProveedorNIM:
             # El modelo razono y se quedo sin tokens para el contenido:
             # reintento basico con mas margen.
             log.warning("nvidia %s devolvio content vacio: se reintenta sin thinking", modelo)
-            respuesta = httpx.post(self.url, headers=headers, json=base, timeout=self.timeout_s)
+            respuesta = cliente.post(self.url, headers=headers, json=base, timeout=self.timeout_s)
             mensaje = _contenido(respuesta)
         return mensaje
 

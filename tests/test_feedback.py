@@ -3,6 +3,9 @@ Tests de los avisos sonoros (`core.feedback`).
 
 Nunca suena de verdad: PlaySound/Beep se patean. Lo que se cubre es la
 ruta de decision: mute, WAV encontrado, y la reserva con Beep si falta.
+
+Cuatro WAVs: ok (dos notas ascendentes), sin-seleccion (nota media corta),
+error (golpe grave amortiguado) y procesando (blip corto grave).
 """
 
 from __future__ import annotations
@@ -27,8 +30,8 @@ def _patear_reproduccion(monkeypatch) -> tuple[list, list]:
     return llamadas_sonido, llamadas_beep
 
 
-def test_los_tres_wav_existen():
-    for nombre in ("ok", "sin-seleccion", "error"):
+def test_los_cuatro_wav_existen():
+    for nombre in ("ok", "sin-seleccion", "error", "procesando"):
         ruta = fb.ruta_sonido(nombre)
         assert ruta is not None, f"falta assets/sonidos/{fb.SONIDOS[nombre]}"
         assert ruta.exists()
@@ -48,16 +51,29 @@ def test_ok_reproduce_el_wav_asincrono(monkeypatch):
     assert flags & winsound.SND_NODEFAULT
 
 
-def test_los_tres_avisos_usan_su_archivo(monkeypatch):
+def test_los_cuatro_avisos_usan_su_archivo(monkeypatch):
     monkeypatch.setattr(fb, "_muted", False)
     sonido, _ = _patear_reproduccion(monkeypatch)
 
     fb.ok()
     fb.no_selection()
     fb.error()
+    fb.procesando()
 
     usados = [Path(r).name for r, _ in sonido]
-    assert usados == ["ok.wav", "sin-seleccion.wav", "error.wav"]
+    assert usados == ["ok.wav", "sin-seleccion.wav", "error.wav", "procesando.wav"]
+
+
+def test_procesando_es_distinto_y_mas_corto_que_ok(monkeypatch):
+    """El blip debe ser perceptiblemente distinto: frecuencias distintas y
+    menor duracion."""
+    monkeypatch.setattr(fb, "_muted", False)
+    monkeypatch.setattr(fb, "ruta_sonido", lambda _nombre: None)
+    _, beep = _patear_reproduccion(monkeypatch)
+
+    fb.procesando()
+
+    assert beep == [fb._BEEPS["procesando"]]
 
 
 def test_mute_no_reproduce_nada(monkeypatch):
@@ -67,6 +83,7 @@ def test_mute_no_reproduce_nada(monkeypatch):
     fb.ok()
     fb.no_selection()
     fb.error()
+    fb.procesando()
 
     assert sonido == []
     assert beep == []
@@ -80,3 +97,13 @@ def test_sin_wav_cae_al_beep_del_sistema(monkeypatch):
     fb.ok()
 
     assert beep == [fb._BEEPS["ok"]]
+
+
+def test_procesando_respeta_mute(monkeypatch):
+    monkeypatch.setattr(fb, "_muted", True)
+    sonido, beep = _patear_reproduccion(monkeypatch)
+
+    fb.procesando()
+
+    assert sonido == []
+    assert beep == []

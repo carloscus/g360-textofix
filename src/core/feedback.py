@@ -1,11 +1,12 @@
 """
 Avisos sonoros. Sin dependencias: `winsound` viene en la stdlib.
 
-Tres WAV cortos, sintetizados por `tools/generar_sonidos.py`, con envolvente
+Cuatro WAV cortos, sintetizados por `tools/generar_sonidos.py`, con envolvente
 suave (ataque rapido y caida exponencial): no es el bip de onda cuadrada
 del sistema, sino un sonido de interfaz actual. Se distinguen de un golpe
 de oido: ok = dos notas ascendentes, sin seleccion = nota media corta,
-error = golpe grave amortiguado.
+error = golpe grave amortiguado, procesando = blip corto grave (la
+correccion va por la nube y puede tardar varios segundos).
 
 Se reproducen CON PlaySound SND_ASYNC: no bloquean el ciclo de correccion
 (winsound.Beep si lo bloqueaba 70-220 ms por correccion).
@@ -25,6 +26,7 @@ SONIDOS = {
     "ok": "ok.wav",
     "sin-seleccion": "sin-seleccion.wav",
     "error": "error.wav",
+    "procesando": "procesando.wav",
 }
 
 # Reserva si el WAV no existe: el tono viejo del sistema.
@@ -32,6 +34,8 @@ _BEEPS = {
     "ok": (1400, 70),
     "sin-seleccion": (600, 120),
     "error": (350, 220),
+    # Blip corto y grave: distinto y mas leve que ok/error.
+    "procesando": (250, 60),
 }
 
 _muted = False
@@ -95,3 +99,8 @@ def no_selection() -> None:
 def error() -> None:
     """Fallo la correccion: el original quedo intacto."""
     _play("error")
+
+
+def procesando() -> None:
+    """La correccion va por la nube: puede tardar varios segundos."""
+    _play("procesando")

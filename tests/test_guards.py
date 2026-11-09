@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import pytest
 
-from core.guards import extract_digits, normalize, validate
+from core.guards import extract_correos, extract_digits, extract_urls, normalize, validate
 
 # --- Helpers -----------------------------------------------------------------
 
@@ -42,9 +42,7 @@ def test_rechaza_respuesta_vacia():
 
 def test_rechaza_bloque_de_codigo():
     original = "el cliente pidio tres cajas"
-    assert (
-        reason(original, "```\nel cliente pidio tres cajas\n```") == "formato-markdown"
-    )
+    assert reason(original, "```\nel cliente pidio tres cajas\n```") == "formato-markdown"
 
 
 @pytest.mark.parametrize(
@@ -150,3 +148,45 @@ def test_escritura_solo_cuando_valida_y_cambia():
 def test_texto_largo_valido_se_acepta():
     original = "x" * 400
     assert ok(original, "X" * 400)
+
+
+# --- Guardas de URLs y correos -----------------------------------------------
+
+
+def test_acepta_url_intacta():
+    original = "visita https://ejemplo.com/ayuda para mas info"
+    assert ok(original, "Visita https://ejemplo.com/ayuda para más información.")
+
+
+def test_rechaza_url_modificada():
+    original = "revisa https://soporte.g360.pe/faq"
+    assert reason(original, "Revisa https://g360.pe/soporte") == "urls-correos-modificados"
+
+
+def test_acepta_correo_intacto():
+    original = "escribir a ventas@g360.pe es rápido"
+    assert ok(original, "Escribir a ventas@g360.pe es rápido.")
+
+
+def test_rechaza_correo_modificado():
+    original = "contactar a compras@proveedor.com.pe"
+    assert reason(original, "Contactar a compras.proveedor@gmail.com") == "urls-correos-modificados"
+
+
+def test_sin_urls_ni_correos_no_aplica_la_guarda():
+    # Dos tuplas vacias: la guarda no activa, cualquier correccion ortografica
+    # sigue pasando por las otras reglas.
+    original = "el clima esta muy caluroso hoy"
+    assert ok(original, "El clima está muy caluroso hoy.")
+
+
+def test_extract_urls_conserva_patron():
+    urls = extract_urls("ve http://a.com y https://b.org/doc.pdf")
+    assert urls == ("http://a.com", "https://b.org/doc.pdf")
+    assert extract_urls("sin enlaces") == ()
+
+
+def test_extract_correos_conserva_patron():
+    cs = extract_correos("mando a x.y@test.pe o z@dominio.com.uy")
+    assert cs == ("x.y@test.pe", "z@dominio.com.uy")
+    assert extract_correos("ningun contacto aqui") == ()
