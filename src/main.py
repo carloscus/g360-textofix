@@ -452,6 +452,20 @@ def main(argv: list[str] | None = None) -> int:
     log.info("  corregir : %s", etiquetas.get("corregir", "-"))
     log.info("  deshacer : %s", etiquetas.get("deshacer", "-"))
     log.info("  rehacer  : %s", etiquetas.get("rehacer", "-"))
+
+    # Avisar si algun atajo choco con otra app o no pudo registrarse.
+    faltantes = escucha.faltantes
+    if faltantes:
+        for f in faltantes:
+            si = "otra aplicacion" if f["es_conflicto_externo"] else "error interno"
+            log.warning(
+                "  [!] %s NO se registro (%s): %s",
+                f["accion"],
+                si,
+                f["atajo"],
+            )
+        log.info("  Abre la bandeja > Cambiar atajo para elegir otra combinacion.")
+
     log.info("  bandeja activa. Ctrl+C para salir.")
 
     if modo == MODO_IA:

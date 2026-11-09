@@ -99,6 +99,19 @@ class Bandeja:
         La funcion debe devolver TEXTO: si devolviera un MenuItem, pystray lo
         tomaria como un submenu y falla al construir el menu.
         """
+        from .hotkey import ERROR_HOTKEY_ALREADY_REGISTERED
+
+        faltantes = []
+        if self.escucha is not None:
+            faltantes = self.escucha.faltantes
+
+        if faltantes:
+            partes = [self.estado.resumen()]
+            partes.append(f"Atajos sin registrar ({len(faltantes)}):")
+            for f in faltantes:
+                titulo = "OTRA APP" if f["es_conflicto_externo"] else "INTERNO"
+                partes.append(f"  - {f['atajo']} ({titulo})")
+            return pystray.MenuItem(lambda _i: "\n".join(partes), None, enabled=False)
         return pystray.MenuItem(lambda _item: self.estado.resumen(), None, enabled=False)
 
     def _construir(self):

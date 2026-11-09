@@ -176,6 +176,9 @@ WM_CAMBIAR = 0x8001
 HOTKEY_ID_BASE = 0xB360
 
 MOD_NOREPEAT = 0x4000
+# Windows: otra aplicacion ya registro esta combinacion. Significa conflicto
+# externo; el usuario debe elegir otro atajo, no es un problema interno.
+ERROR_HOTKEY_ALREADY_REGISTERED = 1409
 
 _MSG = wintypes.MSG
 
@@ -200,6 +203,9 @@ class EscuchaAtajos:
         self.atajos = atajos
         self._thread_id: int | None = None
         self._ids: dict[int, str] = {}
+        # Fallos de registro detectados: [{"accion", "atajo", "es_conflicto_externo"}].
+        # Se limpia en cada _registrar() para reflejar el estado actual.
+        self._registros_fallidos: list[dict] = []
         self._lock = threading.Lock()
         self._ocupado = set()
         self._al_presionar: Callable[[str], None] | None = None
@@ -279,10 +285,22 @@ class EscuchaAtajos:
                     self._ids[id_viejo] = accion
                 else:
                     log.error("no se pudo restaurar el atajo de %s", accion)
+            self._registros_fallidos.append(
+                {
+                    "accion": accion,
+                    "atajo": describir_atajo(nuevo),
+                    "es_conflicto_externo": error == ERROR_HOTKEY_ALREADY_REGISTERED,
+                }
+            )
             return False, f"{describir_atajo(nuevo)} esta ocupado"
 
         self._ids[HOTKEY_ID_BASE + numero] = accion
         self.atajos[accion] = nuevo
+        # Si el cambio entro bien, saco el registro de fallo previo de esta
+        # accion (si existia): el usuario ya resolvio el conflicto.
+        self._registros_fallidos = [
+            r for r in self._registros_fallidos if r["accion"] != accion
+        ]
         log.info("atajo %s -> %s", accion, describir_atajo(nuevo))
         return True, describir_atajo(nuevo)
 
@@ -306,6 +324,20 @@ class EscuchaAtajos:
             if a == accion:
                 return id_hotkey
         return None
+
+    @property
+    def faltantes(self) -> list[dict]:
+        """
+        Atajos que no se pudieron registrar y por qué.
+
+        Cada dict tiene: `accion`, `atajo` (combo descrito),
+        y `es_conflicto_externo` (True si otra app lo tiene).
+        Solo incluye los atajos cuyo ID sigue sin estar en `_ids`: los que
+        fallaron al registrar pero despues el usuario cambio a otro combo
+        exitoso quedan limpiados por la logica de `_cambiar_en_este_hilo`.
+        """
+        ids_registrados = set(self._ids.values())
+        return [r for r in self._registros_fallidos if r["accion"] not in ids_registrados]
 
     # --- API ----------------------------------------------------------------
 
@@ -333,6 +365,7 @@ class EscuchaAtajos:
         proceso ya libero.
         """
         self._ids.clear()
+        self._registros_fallidos.clear()
         try:
             self._registrar_uno()
         except Exception:
@@ -375,6 +408,13 @@ class EscuchaAtajos:
                     accion,
                     describir_atajo(atajo),
                     error,
+                )
+                self._registros_fallidos.append(
+                    {
+                        "accion": accion,
+                        "atajo": describir_atajo(atajo),
+                        "es_conflicto_externo": error == ERROR_HOTKEY_ALREADY_REGISTERED,
+                    }
                 )
                 continue
             self._ids[id_hotkey] = accion
