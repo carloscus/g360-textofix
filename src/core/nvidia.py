@@ -12,7 +12,8 @@ Medicion del 18/10/2026 (5 casos de la bateria del proyecto, timeout 15s):
     nvidia/nemotron-3.5-lightning-30b-a3b   responde 4s pero no corrige y
                                             se cuelga a ratos
     z-ai/glm-5.3-flash                      si responde, ~58s: inviable
-    deepseek-ai/deepseek-v4.1-flash         no responde
+    deepseek-ai/deepseek-v4.1-flash         antes no respondia; se anade como
+                                            segundo respaldo hasta medirlo
     mistral-7b, gemma-3-4b, granite-3b,
     nemotron-51b                            listados pero 404
 
@@ -48,7 +49,9 @@ MODELO_POR_DEFECTO = "nvidia/nemotron-3-super-120b-a12b"
 # medicion el 90b responde en 2-11s cuando no se cuelga; su fama de "mejor
 # calidad" no se reprodujo (1/5 en la bateria, y reescribio el formato de
 # moneda S/ 4,500.00 -> S/ 4.500,00).
-MODELOS_DE_REPALDO = [MODELO_90B]
+# deepseek-v4.1-flash antes no respondia; se reintenta como segundo respaldo
+# si el 90b tampoco funciona, pero todavia no se midio su rendimiento real.
+MODELOS_DE_REPALDO = [MODELO_90B, "deepseek-ai/deepseek-v4.1-flash"]
 
 
 class NIMCorrupta(RuntimeError):
