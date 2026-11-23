@@ -89,7 +89,7 @@ Rehacer corrección             (gris si no hay nada)
 Cambiar atajo…
 Clave API Gemini…
 Clave API NVIDIA…
-Modelo de corrección            Auto · NVIDIA 90b · Gemini
+Modelo de corrección            Auto · NVIDIA Ultra 550b · Gemini
 Iniciar con Windows            ✓
 ──────────────────────────────
 Salir
@@ -210,7 +210,7 @@ iniciar.bat
 Alternativa sin `.bat`:
 
 ```powershell
-uv sync
+uv sync --extra ai
 uv run python src/main.py --modo ia
 ```
 
@@ -303,6 +303,7 @@ proyecto.
 | `uv run python src/main.py --once` | Una corrección sobre lo seleccionado y sale |
 | `uv run python src/main.py --once --mock-transform wrap` | Envuelve el texto en `«»` para ver dónde se escribió |
 | `uv run python src/main.py --bateria` | Corre la batería de frases, sin escribir nada |
+| `uv run python src/main.py --bateria --natural` | Batería en modo humano ligero (natural) |
 | `uv run python src/main.py --bateria tilde --pausa 13` | Solo los casos `tilde`, con pausa para la cuota gratuita |
 | `uv run python src/main.py --probar-api` | Verifica claves/modelos con **1 llamada mínima** por proveedor |
 | `uv run python src/main.py --diagnostico` | Informa qué ventana está en primer plano y qué adaptador usaría |
@@ -336,7 +337,7 @@ Es lo que escribe el menú de la bandeja. Se arranca leyendo `.env` y después
 | `hotkey_rehacer` | `CTRL+SHIFT+R` | Atajo de rehacer |
 | `iniciar_con_windows` | `false` | Arranque automático |
 | `activo` | `true` | Arranca activo o desactivado |
-| `modelo_ia` | `auto` | Modelo elegido en la bandeja: `auto` / `nvidia-90b` / `gemini` |
+| `modelo_ia` | `auto` | Modelo elegido en la bandeja: `auto` / `nvidia-90b` / `gemini`. `nvidia-90b` es el identificador heredado de `config.json` viejo; hoy selecciona NVIDIA Ultra 550b (el modelo 90b Vision se retiró en 2026). |
 
 ### `.env` — lo técnico, en la carpeta del proyecto
 
@@ -348,12 +349,13 @@ Opcional, y pensado sobre todo para desarrollo.
 | `GEMINI_MODEL` | `gemini-2.5-flash-lite` | Modelo de Gemini |
 | `GEMINI_TIMEOUT_S` | `8` | Espera de la respuesta |
 | `NIM_API_KEY` | — | Clave de NVIDIA NIM (si hay, manda NVIDIA por defecto) |
-| `NIM_MODEL` | `nvidia/nemotron-3-super-120b-a12b` | Modelo de NVIDIA NIM (gratuito, medido ~1s) |
+| `NIM_MODEL` | `nvidia/nemotron-3.5-super-vl-120b-a12b` | Modelo de NVIDIA NIM (gratuito, medido ~1s) |
 | `PROVEEDOR_IA` | autodetect | Fuerza uno: `nvidia` o `gemini` |
 | `TEXTOFIX_SOUND` | `true` | Desactiva los tonos (pruebas automatizadas) |
 | `TEXTOFIX_ENABLED` | `true` | Desactiva el corrector sin salir |
 | `TEXTOFIX_VERBOSE` | `false` | Detalle en consola |
 | `TEXTOFIX_CLIPBOARD_TIMEOUT_MS` | `400` | Espera al `Ctrl+C`. Subirlo ayuda en equipos lentos |
+| `TEXTOFIX_ESTILO` | `natural` | Override de desarrollo del estilo: `natural` | `estricto`. Fuente normal: la bandeja |
 
 ### Dónde busca cada clave, en orden
 
@@ -368,6 +370,39 @@ funciona aunque el acceso directo arranque con otro directorio de trabajo.
 Guardá las claves desde la bandeja (`Clave API Gemini…` / `Clave API
 NVIDIA…`) y dejá de depender del `.env`. Si no hay **ninguna** clave, el
 arranque las pide por consola una sola vez.
+
+---
+
+## Modo humano ligero
+
+El corrector trae un **modo humano ligero** (tono neutro conversacional):
+cambia como máximo **1 o 2 palabras por frase** para que el texto suene más
+natural, sin reescribir, sin cambiar ideas, datos, vocabulario ni registro.
+
+- **Qué hace**: corrige ortografía y puntuación, y ajusta como máximo 1-2
+  palabras por frase para que suene conversacional y neutro (formal →
+  profesional-natural; muy coloquial → ordenado sin enfriar).
+- **Cómo se prende**: viene activado por defecto. En la bandeja, el menú
+  "Estilo de corrección" ofrece tres opciones:
+  - **Automático** (default): usa Humano, salvo que `TEXTOFIX_ESTILO` del
+    entorno fuerce otro.
+  - **Humano (natural)**: modo humano ligero siempre.
+  - **Estricto (solo ortografía)**: ninguna mejora de redacción, solo tilde,
+    mayúsculas y puntuación.
+- **La guarda rechaza reescrituras agresivas SOLO en natural**: con
+  `estilo="natural"` las guardas aplican un presupuesto de cambios
+  (máx. 12 palabras, ~20% del texto, piso 2). Si el modelo se pasa, la
+  respuesta no se escribe y se conserva el original. En estricto ese
+  presupuesto no aplica.
+- **Decisión de diseño**: el default es natural porque la mayoría de las
+  correcciones de trabajo se benefician de un tono conversacional ligero, y
+  el presupuesto de la guarda impide que el modelo se exceda. Existe
+  "Automático" para que, en desarrollo, se pueda forzar otro estilo por
+  variable de entorno sin tocar config.json; y "Estricto" para quien solo
+  quiere ortografía pura.
+- **Medición reproducible**: `uv run python scripts/medicion_natural.py [--repeticiones N] [--offline]`
+  ejecuta los casos d, f, nombres y estricto, imprimiendo diferencias,
+  presupuesto y validate por repetición, sin red.
 
 ---
 
@@ -546,8 +581,8 @@ suena el tono de error: mejor no escribir que inventar.
 
 | Opción | Qué usa | Cuándo |
 |---|---|---|
-| **Auto** (default) | NIM nemotron-super si hay clave, si no Gemini | Lo normal |
-| **NVIDIA 90b Vision** | El modelo grande como principal | Si el super no te convence |
+| **Auto** (default) | NIM nemotron-3.5-super si hay clave, si no Gemini | Lo normal |
+| **NVIDIA Ultra 550b** | El modelo grande como principal (id heredado `nvidia-90b`) | Si el super no te convence |
 | **Gemini** | La nube de Google directa | Si preferís Gemini |
 
 `auto` no pisa un `PROVEEDOR_IA` del `.env`, y la elección de la bandeja sí

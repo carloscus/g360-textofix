@@ -66,10 +66,10 @@ def test_variedad_de_rechazos_se_detecta():
 def test_con_clave_nim_la_nube_manda(monkeypatch):
     """Si hay clave de NIM, NVIDIA va primero aunque tambien este Gemini."""
     import core.proovedor as prov_mod
-    from core.nvidia import ProveedorNIM
+    from core.nvidia import MODELO_90B, ProveedorNIM
 
     class _NIMFalso(ProveedorNIM):
-        modelo = "meta/llama-3.2-90b-vision-instruct"
+        modelo = MODELO_90B
 
         def disponible(self):
             return True, ""
@@ -100,10 +100,10 @@ def test_sin_clave_nim_va_a_gemini(monkeypatch):
 def test_ollama_en_el_env_viejo_cae_al_default_de_nube(monkeypatch):
     """PROVEEDOR_IA=ollama ya no existe: no rompe, cae al default de nube."""
     import core.proovedor as prov_mod
-    from core.nvidia import ProveedorNIM
+    from core.nvidia import MODELO_90B, ProveedorNIM
 
     class _NIMFalso(ProveedorNIM):
-        modelo = "meta/llama-3.2-90b-vision-instruct"
+        modelo = MODELO_90B
 
         def disponible(self):
             return True, ""
@@ -169,10 +169,10 @@ def test_bandeja_manda_sobre_el_env(monkeypatch):
 def test_auto_deja_pasar_el_env(monkeypatch):
     """'auto' no es una eleccion: PROVEEDOR_IA del .env sigue mandando."""
     import core.proovedor as prov_mod
-    from core.nvidia import ProveedorNIM
+    from core.nvidia import MODELO_POR_DEFECTO, ProveedorNIM
 
     class _NIMFalso(ProveedorNIM):
-        modelo = "nvidia/nemotron-3-super-120b-a12b"
+        modelo = MODELO_POR_DEFECTO
 
         def disponible(self):
             return True, ""

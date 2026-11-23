@@ -66,6 +66,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Corrige la bateria de frases de prueba y muestra el resultado, sin escribir nada.",
     )
     parser.add_argument(
+        "--natural",
+        action="store_true",
+        help=(
+            "Con --bateria, ejecuta la bateria en modo humano ligero (natural) "
+            "en vez de la estricta canonica. Las correcciones interactivas siguen "
+            "usando estilo_activo() (bandeja/config.json)."
+        ),
+    )
+    parser.add_argument(
         "--probar-api",
         action="store_true",
         help=(
@@ -107,8 +116,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help=(
             "Modelo a usar sobre el default del proveedor elegido. Sin esto "
             "cada nube usa el suyo: GEMINI_MODEL (default gemini-2.5-flash-lite) "
-            "o NIM_MODEL (default nvidia/nemotron-3-super-120b-a12b)."
-        ),
+            "o NIM_MODEL (default nvidia/nemotron-3.5-super-vl-120b-a12b)."        ),
     )
     parser.add_argument("--sin-sonido", action="store_true", help="Desactiva los tonos.")
     parser.add_argument("-v", "--verbose", action="store_true", help="Detalle en consola.")
@@ -286,8 +294,10 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.bateria:
         cargar_dotenv()
-        from core.bateria import ejecutar
+        from core.bateria import ejecutar, ejecutar_natural
 
+        if args.natural:
+            return ejecutar_natural(args.filtro, args.pausa)
         return ejecutar(args.filtro, args.pausa)
 
     if args.probar_api:

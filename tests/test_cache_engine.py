@@ -59,8 +59,9 @@ def test_key_incluye_etiqueta_y_modelo():
     from core.engine import _cache_buscar, _cache_guardar
 
     cache_vaciar()
-    _cache_guardar("nvidia", "model-x", "texto", "resultado")
-    assert _cache_buscar("nvidia", "model-x", "texto") == "resultado"
+    _cache_guardar("nvidia", "model-x", "texto", "resultado", estilo="estricto")
+    assert _cache_buscar("nvidia", "model-x", "texto", estilo="estricto") == "resultado"
+    assert _cache_buscar("nvidia", "model-x", "texto", estilo="natural") is None
     assert _cache_buscar("gemini", "model-x", "texto") is None
     assert _cache_buscar("nvidia", "model-y", "texto") is None
 
@@ -74,15 +75,29 @@ def test_lrue_expulsa_el_menos_usado():
     original_max = mod._CACHE_MAX
     mod._CACHE_MAX = 2
     try:
-        _cache_guardar("a", "m", "x", "rx")
-        _cache_guardar("a", "m", "y", "ry")
-        _cache_guardar("a", "m", "z", "rz")  # debe expulsar "x"
-        assert _cache_buscar("a", "m", "x") is None, "x fue expulsado"
-        assert _cache_buscar("a", "m", "y") == "ry"
-        assert _cache_buscar("a", "m", "z") == "rz"
+        _cache_guardar("a", "m", "x", "rx", estilo="estricto")
+        _cache_guardar("a", "m", "y", "ry", estilo="estricto")
+        _cache_guardar("a", "m", "z", "rz", estilo="estricto")  # debe expulsar "x"
+        assert _cache_buscar("a", "m", "x", estilo="estricto") is None, "x fue expulsado"
+        assert _cache_buscar("a", "m", "y", estilo="estricto") == "ry"
+        assert _cache_buscar("a", "m", "z", estilo="estricto") == "rz"
     finally:
         mod._CACHE_MAX = original_max
         cache_vaciar()
+
+
+def test_cache_clave_incluye_estilo():
+    """Mismo texto, distinto estilo => entradas de cache distintas (no se
+    pisa la correccion estricto con la natural ni viceversa)."""
+    from core.engine import _cache_buscar, _cache_guardar
+
+    cache_vaciar()
+    _cache_guardar("nvidia", "m", "texto", "resultado-estricto", estilo="estricto")
+    _cache_guardar("nvidia", "m", "texto", "resultado-natural", estilo="natural")
+    assert _cache_buscar("nvidia", "m", "texto", estilo="estricto") == "resultado-estricto"
+    assert _cache_buscar("nvidia", "m", "texto", estilo="natural") == "resultado-natural"
+    # Estilo por defecto ("") es una entrada distinta de cualquiera con estilo.
+    assert _cache_buscar("nvidia", "m", "texto") is None
 
 
 # --- Comportamientos deseados (via correct()) ---------------------------------
@@ -143,3 +158,25 @@ def test_mock_mode_no_toca_cache():
     correct("hola", mode="mock", transform="roundtrip")
     correct("hola", mode="mock", transform="roundtrip")
     cache_vaciar()  # solo limpieza.
+
+
+def test_secuencia_estricto_natural_natural_estricto_tres_llamadas(monkeypatch):
+    """La clave de cache incluye el estilo.
+
+    Secuencia estricto -> natural -> natural -> estricto(texto distinto):
+    el segundo natural usa el cache del primer natural, y el ultimo estricto
+    con texto distinto vuelve a llamar al proveedor. Total: 3 llamadas.
+    """
+    prov = FakeProv("resultado")
+    monkeypatch.setattr("core.proovedor.seleccion_proveedor", lambda: prov)
+    cache_vaciar()
+    correct("texto estricto", mode="ia", transform="roundtrip", estilo="estricto")
+    assert prov.llamadas == 1
+    correct("texto natural", mode="ia", transform="roundtrip", estilo="natural")
+    assert prov.llamadas == 2
+    antes = prov.llamadas
+    correct("texto natural", mode="ia", transform="roundtrip", estilo="natural")
+    assert prov.llamadas == antes  # cache del natural previo
+    correct("texto estricto otro", mode="ia", transform="roundtrip", estilo="estricto")
+    assert prov.llamadas == antes + 1  # texto distinto => nueva llamada
+    assert prov.llamadas == 3

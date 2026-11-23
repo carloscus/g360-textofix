@@ -95,9 +95,16 @@ _cache: OrderedDict[tuple, str] = OrderedDict()
 _cache_lock = threading.Lock()
 
 
-def _cache_buscar(etiqueta_prov: str, modelo: str, texto: str) -> str | None:
-    """El candidato cacheado, si lo hay. Renueva la posicion (LRU)."""
-    clave = (etiqueta_prov, modelo, texto)
+def _cache_buscar(
+    etiqueta_prov: str, modelo: str, texto: str, estilo: str = ""
+) -> str | None:
+    """El candidato cacheado, si lo hay. Renueva la posicion (LRU).
+
+    La clave incluye `estilo` (default "" para compatibilidad con los tests
+    existentes que llaman directo): una correccion en natural y otra en
+    estricto del mismo texto son entradas distintas.
+    """
+    clave = (etiqueta_prov, modelo, texto, estilo)
     with _cache_lock:
         if clave not in _cache:
             return None
@@ -105,9 +112,19 @@ def _cache_buscar(etiqueta_prov: str, modelo: str, texto: str) -> str | None:
         return _cache[clave]
 
 
-def _cache_guardar(etiqueta_prov: str, modelo: str, texto: str, candidato: str) -> None:
-    """Guarda un exito; si supera el maximo, expulsa el menos usado."""
-    clave = (etiqueta_prov, modelo, texto)
+def _cache_guardar(
+    etiqueta_prov: str,
+    modelo: str,
+    texto: str,
+    candidato: str,
+    estilo: str = "",
+) -> None:
+    """Guarda un exito; si supera el maximo, expulsa el menos usado.
+
+    La clave interna incluye `estilo` (default ""): (etiqueta, modelo, texto,
+    estilo).
+    """
+    clave = (etiqueta_prov, modelo, texto, estilo)
     with _cache_lock:
         _cache[clave] = candidato
         _cache.move_to_end(clave)
@@ -147,6 +164,7 @@ def correct(
     transform: str,
     modelo: str | None = None,
     evitando: str | None = None,
+    estilo: str | None = None,
 ) -> str | None:
     """
     Produce la version corregida del texto.
@@ -160,6 +178,9 @@ def correct(
 
     Si algo falla devuelve None y el llamador conserva el original: fallar
     es siempre preferible a escribir cualquier cosa.
+
+    `estilo` (default: `estilo_activo()`) se incluye en la clave de cache:
+    una misma correccion en modo natural y en estricto son entradas distintas.
     """
     if mode == "mock":
         return mock_correct(text, transform)
@@ -167,8 +188,14 @@ def correct(
     if mode == "ia":
         import time
 
+        from .ai import estilo_activo
         from .latencia import LATENCIA_TRACKER
         from .proovedor import etiqueta, otra_nube, seleccion_proveedor
+
+        # Estilo calculado UNA vez: rige tanto para el cache como para
+        # validar despues de corregir.
+        if estilo is None:
+            estilo = estilo_activo()
 
         prov = seleccion_proveedor()
         # --modelo manda sobre el default del proveedor elegido. Sin
@@ -181,7 +208,7 @@ def correct(
         # cache: la validacion sigue siendo determinista.
         usar_cache = evitando is None
         if usar_cache:
-            cacheado = _cache_buscar(etiqueta(prov), prov.modelo, text)
+            cacheado = _cache_buscar(etiqueta(prov), prov.modelo, text, estilo)
             if cacheado is not None:
                 return cacheado
 
@@ -210,13 +237,13 @@ def correct(
             LATENCIA_TRACKER.registrar(etiqueta(otra), seg)
             # El exito se cachea bajo la identidad del que lo produjo.
             if usar_cache and resultado is not None:
-                _cache_guardar(etiqueta(otra), otra.modelo, text, resultado)
+                _cache_guardar(etiqueta(otra), otra.modelo, text, resultado, estilo)
         else:
             seg = time.monotonic() - inicio
             LATENCIA_TRACKER.registrar(etiqueta(prov), seg)
             # Solo exitos (no None): un fallo no se memoriza.
             if usar_cache and resultado is not None:
-                _cache_guardar(etiqueta(prov), prov.modelo, text, resultado)
+                _cache_guardar(etiqueta(prov), prov.modelo, text, resultado, estilo)
         return resultado
 
     raise NotImplementedError(f"modo de correccion desconocido: {mode}")
@@ -332,6 +359,7 @@ def _corregir_y_escribir(
     modelo: str | None = None,
     evitando: str | None = None,
     original_a_corregir: str | None = None,
+    estilo: str | None = None,
 ) -> Outcome:
     """
     Corrige, valida y, si todo cuadra, reemplaza. Ver `run_once`.
@@ -340,7 +368,15 @@ def _corregir_y_escribir(
     repondria). `base` es lo que se le pide al modelo: el mismo texto, salvo
     en el ciclo de variantes, donde es el original de verdad — en pantalla ya
     esta la primera correccion, y de ahi salen las alternativas.
+
+    `estilo` (default: `estilo_activo()`) se calcula UNA vez y se reusa tanto
+    para el cache de `correct()` como para `validate()`.
     """
+    from .ai import estilo_activo
+
+    if estilo is None:
+        estilo = estilo_activo()
+
     original = capture.text
     base = original if original_a_corregir is None else original_a_corregir
     if mode == "ia":
@@ -349,7 +385,9 @@ def _corregir_y_escribir(
         # instantaneo y sonar ahi seria solo ruido.
         feedback.procesando()
     try:
-        candidate = correct(base, mode, transform, modelo=modelo, evitando=evitando)
+        candidate = correct(
+            base, mode, transform, modelo=modelo, evitando=evitando, estilo=estilo
+        )
     except NotImplementedError:
         feedback.error()
         return Outcome(False, "sin-modo-de-correccion", adapter=adapter.name)
@@ -378,7 +416,7 @@ def _corregir_y_escribir(
         feedback.no_selection()
         return Outcome(False, "variante-igual", adapter=adapter.name, chars=len(original))
 
-    verdict: Verdict = validate(base, candidate)
+    verdict: Verdict = validate(base, candidate, estilo)
     log.debug("validacion: %s", verdict.reason)
 
     if not verdict.ok:

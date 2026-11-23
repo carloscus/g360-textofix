@@ -60,3 +60,33 @@ def test_atajos_por_defecto_estan_completos():
     assert config["hotkey_rehacer"]
     # Y los tres tienen que ser distintos: Windows no registra duplicados.
     assert len({config[k] for k in config if k.startswith("hotkey_")}) == 3
+
+
+# --- Estilo ------------------------------------------------------------------
+# `leer_estilo()` devuelve el estilo guardado: auto | natural | estricto.
+
+
+def test_leer_estilo_default_es_auto(perfil_falso: Path):
+    """Sin config.json, el default es 'auto'."""
+    assert perfil.leer_estilo() == "auto"
+
+
+def test_leer_estilo_roundtrip(perfil_falso: Path):
+    """Lo que se guarda se lee igual (y no pierde otras claves)."""
+    perfil.guardar_config({"estilo": "natural", "hotkey_corregir": "CTRL+ALT+E"})
+    assert perfil.leer_estilo() == "natural"
+    config = perfil.leer_config()
+    assert config["hotkey_corregir"] == "CTRL+ALT+E"
+    assert config["hotkey_deshacer"] == "CTRL+SHIFT+Z"
+
+
+def test_leer_estilo_valor_invalido_cae_a_auto(perfil_falso: Path):
+    """Cualquier valor distinto de auto|natural|estricto devuelve 'auto'."""
+    (perfil_falso / "config.json").write_text('{"estilo": "inventado"}', encoding="utf-8")
+    assert perfil.leer_estilo() == "auto"
+
+
+def test_leer_estilo_config_sin_clave_devuelve_auto(perfil_falso: Path):
+    """Config sin la clave 'estilo' devuelve 'auto'."""
+    (perfil_falso / "config.json").write_text('{"activo": true}', encoding="utf-8")
+    assert perfil.leer_estilo() == "auto"

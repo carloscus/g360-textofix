@@ -135,6 +135,7 @@ class Bandeja:
             pystray.MenuItem("Clave API Gemini...", self._configurar_clave),
             pystray.MenuItem("Clave API NVIDIA...", self._configurar_clave_nim),
             pystray.MenuItem("Modelo de correccion", self._submenu_modelo()),
+            pystray.MenuItem("Estilo de correccion", self._submenu_estilo()),
             pystray.MenuItem(
                 "Iniciar con Windows",
                 self._alternar_autostart,
@@ -228,6 +229,55 @@ class Bandeja:
         config["modelo_ia"] = valor
         guardar_config(config)
         log.info("modelo de correccion elegido: %s", valor)
+        self.refrescar()
+
+    def _submenu_estilo(self) -> pystray.Menu:
+        """
+        Las tres opciones de estilo de correccion, con radio y estado al dia.
+
+        La fuente unica de los valores es `ai.OPCIONES_ESTILO` (auto, natural,
+        estricto). La marca se re-lee al abrir el menu contra `estilo_activo()`
+        (el modo EFECTIVO: config.json si es natural/estricto, si no TEXTOFIX_ESTILO
+        del entorno, y por defecto "natural"), asi que "auto" + env marca
+        correctamente el modo real que se va a aplicar.
+
+        Incluye una nota visible aclarando que "Automatico" usa Humano salvo
+        override de entorno.
+        """
+        from .ai import OPCIONES_ESTILO, estilo_activo
+
+        activo = estilo_activo()
+
+        def _marcado(valor: str):
+            return lambda _item: activo == valor
+
+        return pystray.Menu(
+            pystray.MenuItem(
+                "Nota: Automatico usa Humano salvo override de entorno",
+                None,
+                enabled=False,
+            ),
+            *[
+                pystray.MenuItem(
+                    texto,
+                    lambda _item, _valor=valor: self._elegir_estilo(_valor),
+                    radio=True,
+                    checked=_marcado(valor),
+                )
+                for valor, texto in OPCIONES_ESTILO
+            ],
+        )
+
+    def _elegir_estilo(self, valor: str, *_):
+        """Persiste la eleccion de estilo en el perfil: aplica a la proxima
+        correccion (la cache ya separa por estilo). No re-registra hotkeys,
+        no reinicia."""
+        from .perfil import guardar_config, leer_config
+
+        config = leer_config()
+        config["estilo"] = valor
+        guardar_config(config)
+        log.info("estilo de correccion elegido: %s", valor)
         self.refrescar()
 
     def _pedir_clave(self, nombre: str, donde: str, leer, guardar, probar=None):

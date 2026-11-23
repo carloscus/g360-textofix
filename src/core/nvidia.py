@@ -5,20 +5,20 @@ NVIDIA NIM expone una API OpenAI-compatible: POST /v1/chat/completions.
 Solo se usan modelos con endpoint gratuito que respondan de verdad: el
 listado /v1/models trae 81, pero varios devuelven 404 al llamarlos.
 
-Medicion del 18/10/2026 (5 casos de la bateria del proyecto, timeout 15s):
+Medicion del 22/11/2026 (6 frases espanolas de ortografia, temperature 0.1,
+mismo PROMPT del repo):
 
-    nvidia/nemotron-3-super-120b-a12b       4/5 OK, mediana 0.97s, max 1.34s
-    meta/llama-3.2-90b-vision-instruct      1/5 OK, 2-11s, colgados a 15s
-    nvidia/nemotron-3.5-lightning-30b-a3b   responde 4s pero no corrige y
-                                            se cuelga a ratos
-    z-ai/glm-5.3-flash                      si responde, ~58s: inviable
-    deepseek-ai/deepseek-v4.1-flash         antes no respondia; se anade como
-                                            segundo respaldo hasta medirlo
-    mistral-7b, gemma-3-4b, granite-3b,
-    nemotron-51b                            listados pero 404
+    nvidia/nemotron-3.5-super-vl-120b-a12b   6/6 OK, 0.48-0.89s por frase (total 3.55s)
+    nvidia/nemotron-3-ultra-550b-a55b        responde bien, 0.81s; otra familia, mas grande
+    nvidia/nemotron-3.5-bolt-e4b             5/6 (dejo "reunion" sin tilde), 0.34-0.50s
+    nvidia/nemotron-3.5-lightning-30b-a3b    5/6 (dejo "No se si" sin tildes), 0.27-0.62s
 
-Por eso el nemotron-super va PRIMERO (el mas rapido y el mejor puntaje) y
-el 90b queda como respaldo, con otra familia de modelo.
+Los tres modelos anteriores (nemotron-3-super-120b-a12b, llama-3.2-90b-vision-instruct y
+deepseek-v4.1-flash) murieron el 03/10/2026: la API devuelve 410 "end of life" y el
+modelo ya no existe. Quedan registrados aca solo para que nadie los resucite por error.
+
+Por eso el nemotron-3.5-super va PRIMERO (el mas rapido y el mejor puntaje de la
+medicion) y el 90b queda como respaldo, con otra familia de modelo.
 
 Sobre el texto: SI sale de la maquina (va a la nube). Si la privacidad es el
 motivo, este proveedor no es para textos sensibles.
@@ -37,21 +37,19 @@ from .logsetup import LOGGER_NAME, describe
 # Importar aqui a nivel modulo para que _pedir_un_modelo y corregir compartan
 # las mismas funciones; evitaria el "import local" que dejo el reviewer como
 # olor de diseno. La importacion es barata (modulo ya cargado por engine.py).
-from .ai import PROMPT, envolver_texto, prompt_variante  # mismo prompt conservador
+from .ai import construir_prompt, estilo_activo, envolver_texto  # mismo prompt conservador
 
 log = logging.getLogger(LOGGER_NAME)
 
 URL_POR_DEFECTO = "https://integrate.api.nvidia.com/v1/chat/completions"
-# El 90b tambien se puede elegir a mano desde la bandeja (modelo_ia).
-MODELO_90B = "meta/llama-3.2-90b-vision-instruct"
-MODELO_POR_DEFECTO = "nvidia/nemotron-3-super-120b-a12b"
-# Respaldo: otra familia por si el primero no responde o anda mal. En la
-# medicion el 90b responde en 2-11s cuando no se cuelga; su fama de "mejor
-# calidad" no se reprodujo (1/5 en la bateria, y reescribio el formato de
-# moneda S/ 4,500.00 -> S/ 4.500,00).
-# deepseek-v4.1-flash antes no respondia; se reintenta como segundo respaldo
-# si el 90b tampoco funciona, pero todavia no se midio su rendimiento real.
-MODELOS_DE_REPALDO = [MODELO_90B, "deepseek-ai/deepseek-v4.1-flash"]
+# El 90b tambien se puede elegir a mano desde la bandeja (modelo_ia). El valor
+# persistido "nvidia-90b" se mantiene por compatibilidad con config.json; solo
+# cambia el modelo al que apunta (ahora Ultra 550b).
+MODELO_90B = "nvidia/nemotron-3-ultra-550b-a55b"
+MODELO_POR_DEFECTO = "nvidia/nemotron-3.5-super-vl-120b-a12b"
+# Respaldo: otra familia por si el primero no responde o anda mal. El 90b
+# (Ultra 550b) va primero y Bolt e4b segundo; ninguno de los dos está retirado.
+MODELOS_DE_REPALDO = [MODELO_90B, "nvidia/nemotron-3.5-bolt-e4b"]
 
 
 class NIMCorrupta(RuntimeError):
@@ -146,7 +144,7 @@ class ProveedorNIM:
         import httpx
 
         inicio = time.monotonic()
-        prompt = prompt_variante(evitando) if evitando else PROMPT
+        prompt = construir_prompt(estilo_activo(), evitando)
         mensaje = self._pedir(httpx, prompt, texto)
 
         transcurrido = time.monotonic() - inicio

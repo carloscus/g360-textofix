@@ -25,7 +25,7 @@ from core.ai import CuotaAgotada
 
 
 class _NIMRota:
-    modelo = "meta/llama-3.2-90b-vision-instruct"
+    modelo = "nvidia/nemotron-3-ultra-550b-a55b"
 
     def corregir(self, texto, evitando=None):
         raise CuotaAgotada("cuota agotada")
@@ -55,7 +55,7 @@ class _GeminiRota:
 
 
 class _NimOK:
-    modelo = "meta/llama-3.2-90b-vision-instruct"
+    modelo = "nvidia/nemotron-3-ultra-550b-a55b"
 
     def corregir(self, texto, evitando=None):
         return "corregido por nvidia"

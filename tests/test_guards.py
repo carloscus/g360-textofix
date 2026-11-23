@@ -9,7 +9,22 @@ from __future__ import annotations
 
 import pytest
 
-from core.guards import extract_correos, extract_digits, extract_urls, normalize, validate
+from core.casos import TODOS
+from core.guards import (
+    CORTA,
+    NUMERICO,
+    PALABRA,
+    PROTEGIDO,
+    Diferencias,
+    diferencias,
+    extract_correos,
+    extract_digits,
+    extract_urls,
+    normalize,
+    presupuesto_palabras,
+    tokens_lexicos,
+    validate,
+)
 
 # --- Helpers -----------------------------------------------------------------
 
@@ -190,3 +205,145 @@ def test_extract_correos_conserva_patron():
     cs = extract_correos("mando a x.y@test.pe o z@dominio.com.uy")
     assert cs == ("x.y@test.pe", "z@dominio.com.uy")
     assert extract_correos("ningun contacto aqui") == ()
+
+
+# --- Tabla de clases de tokens_lexicos --------------------------------------
+
+
+@pytest.mark.parametrize(
+    "texto,esperado",
+    [
+        ("Hola mundo", [("hola", PALABRA), ("mundo", PALABRA)]),
+        ("a b", [("a", CORTA), ("b", CORTA)]),
+        ("123 42", [("123", NUMERICO), ("42", NUMERICO)]),
+        ("MAS", [("mas", PROTEGIDO)]),
+        ("señor", [("senor", PALABRA)]),
+        ("hola, mundo!", [("hola", PALABRA), ("mundo", PALABRA)]),
+        ("9:30 am", [("9:30", NUMERICO), ("am", CORTA)]),
+        ("12/05/2026", [("12/05/2026", NUMERICO)]),
+        ("SKU-ABC-001", [("sku", NUMERICO), ("abc", NUMERICO), ("001", NUMERICO)]),
+        ("abc123 def", [("abc123", NUMERICO), ("def", PALABRA)]),
+        ("EE.UU. SKU-ABC", [("ee.uu", PROTEGIDO), ("sku", PROTEGIDO), ("abc", PROTEGIDO)]),
+    ],
+)
+def test_tokens_lexicos_clases(texto, esperado):
+    """tokens_lexicos normaliza (NFC+casefold+sin diacriticos), recorta
+    puntuacion, separa guion interno y clasifica. NUMERICO y PROTEGIDO no
+    cuentan para el presupuesto."""
+    assert tokens_lexicos(texto) == esperado
+
+
+def test_tokens_lexicos_nfc_equivalencia():
+    """Un caracter compuesto y su forma descompuesta dan el mismo token."""
+    compuesto = "caf\u00e9"      # e con tilde compuesta (U+00E9)
+    descompuesto = "cafe\u0301"  # e + tilde combinante (U+0301)
+    assert tokens_lexicos(compuesto) == tokens_lexicos(descompuesto)
+
+
+# --- Tildes / mayusculas / puntuacion cuentan 0 cambios ---------------------
+
+
+@pytest.mark.parametrize("caso", [c for c in TODOS if c.nombre.startswith("tilde-")])
+def test_sola_tilde_no_cuenta_cambio(caso):
+    """Una correccion de sola tilde/mayuscula/puntuacion cuenta 0 cambios:
+    tokens_lexicos ya normalizo tildes y mayusculas y recorto puntuacion, por
+    eso senor->señor, mas->más, etc. no aparecen como no-equal."""
+    diff = diferencias(caso.entrada, caso.esperado)
+    assert diff.total == 0, f"{caso.nombre}: {diff}"
+
+
+def test_diferencias_tilde_e_o_u():
+    """Casos explicitos de tilde-e, tilde-o, tilde-u: 0 cambios."""
+    pares = [
+        ("El senor quiere mas informacion", "El señor quiere más información"),
+        ("La informacion llego tarde", "La información llegó tarde"),
+        ("El numero de serie es unico", "El número de serie es único"),
+    ]
+    for original, candidato in pares:
+        assert diferencias(original, candidato).total == 0
+
+
+# --- Formula difflib (documentada en guards.py) ----------------------------
+
+
+@pytest.mark.parametrize(
+    "original,candidato,esperado",
+    [
+        # solo sustituciones del mismo tamaño
+        ("hola mundo", "hola mundo", Diferencias(0, 0, 0)),
+        ("uno dos", "uno tres", Diferencias(1, 0, 0)),
+        # insercion: una palabra mas en el candidato
+        ("hola mundo", "hola cruel mundo", Diferencias(0, 1, 0)),
+        # borrado: una palabra menos en el candidato
+        ("hola cruel mundo", "hola mundo", Diferencias(0, 0, 1)),
+        # mezcla: reemplazo + insercion + borrado
+        ("a b c", "a x b y c", Diferencias(0, 2, 0)),
+    ],
+)
+def test_formula_diferencias(original, candidato, esperado):
+    """Por opcode no-equal con tamaños a,b: sustituidas += min(a,b); el
+    remanente va a borradas (a>b) o insertadas (b>a). cambios = sust+ins+del."""
+    diff = diferencias(original, candidato)
+    assert diff == esperado, f"{original!r} -> {candidato!r}: {diff} != {esperado}"
+    assert diff.total == esperado.total
+
+
+def test_sola_tilde_no_cuenta_en_diferencias():
+    """La tilde no cuenta como cambio: pidio->pidió es Diferencias(0,0,0)."""
+    assert diferencias("el cliente pidio tres cajas", "el cliente pidió tres cajas") == Diferencias(0, 0, 0)
+
+
+def test_cifras_modificadas_se_rechazan_en_validate():
+    """Un cambio de cifra se detecta con extract_digits antes del presupuesto."""
+    original = "el cliente pidio tres cajas"
+    candidato = "el cliente pidió 3 cajas"
+    v = validate(original, candidato, estilo="natural")
+    assert v.reason == "cifras-modificadas"
+
+
+# --- presupuesto_palabras: piso / 20% / tope ------------------------------
+
+
+@pytest.mark.parametrize(
+    "n,esperado",
+    [
+        (1, 2),   # piso
+        (2, 2),   # piso
+        (5, 2),   # round(1.0)=1 -> piso 2
+        (10, 2),  # round(2.0)=2
+        (25, 5),  # round(5.0)=5
+        (50, 10), # round(10.0)=10
+        (60, 12), # round(12.0)=12 (tope)
+        (100, 12),# round(20.0)=20 -> tope 12
+    ],
+)
+def test_presupuesto_palabras(n, esperado):
+    assert presupuesto_palabras(n) == esperado
+
+
+# --- Par agresivo: rechazado SOLO con estilo="natural" ---------------------
+
+
+def test_par_agresivo_solo_en_natural():
+    original = "El cliente pidio tres cajas para el deposito de lima"
+    candidato = "El estimable cliente solicito la compra de tres cajas para su proyecto"
+    # Con estilo None o "estricto" no hay presupuesto: se acepta (si pasa el
+    # resto de guardas; aca solo chequeamos que no sea reescritura-agresiva).
+    for estilo in (None, "estricto"):
+        v = validate(original, candidato, estilo=estilo)
+        assert v.reason != "reescritura-agresiva", estilo
+    # Con estilo="natural" se rechaza por exceder el presupuesto.
+    v = validate(original, candidato, estilo="natural")
+    assert v.reason == "reescritura-agresiva"
+
+
+# --- Todos los pares de casos.TODOS pasan en natural y estricto ------------
+
+
+@pytest.mark.parametrize("caso", TODOS)
+def test_todos_los_casos_pasan_en_ambos_modos(caso):
+    """Ningun par de casos.TODOS se rechaza por presupuesto, ni en natural
+    ni en estricto (los cambios de tilde cuentan 0)."""
+    for estilo in (None, "estricto", "natural"):
+        v = validate(caso.entrada, caso.esperado, estilo=estilo)
+        assert v.ok, f"{caso.nombre} [{estilo}]: {v.reason}"

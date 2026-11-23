@@ -40,6 +40,9 @@ CONFIG_POR_DEFECTO = {
     # "auto" no es una eleccion: deja pasar PROVEEDOR_IA del .env y el
     # autodetect (ver proovedor._eleccion_usuario).
     "modelo_ia": "auto",
+    # Estilo de correccion: auto | natural | estricto.
+    # "auto" deja pasar TEXTOFIX_ESTILO del entorno; si no, default "natural".
+    "estilo": "auto",
 }
 
 
@@ -235,6 +238,21 @@ def leer_modelo_ia() -> str:
     """
     valor = leer_config().get("modelo_ia", "auto")
     return str(valor).strip().lower()
+
+
+def leer_estilo() -> str:
+    """
+    El estilo de correccion guardado en config.json: auto | natural | estricto.
+
+    Minusculas. Cualquier otra cosa o ausencia devuelve "auto" (con
+    log.warning si es basura). `guardar_config` ya filtra por
+    CONFIG_POR_DEFECTO, por lo que solo claves conocidas llegan a persistir.
+    """
+    valor = str(leer_config().get("estilo", "auto")).strip().lower()
+    if valor in ("auto", "natural", "estricto"):
+        return valor
+    log.warning("estilo invalido en config (%r), se usa auto", valor)
+    return "auto"
 
 
 # El nombre de la accion no es la llave del config: separamos las dos cosas para

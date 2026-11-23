@@ -262,3 +262,30 @@ def test_clave_mala_no_llama_al_respaldo():
         assert MODELO_POR_DEFECTO in llamadas
     finally:
         monkeypatch.undo()
+
+
+# --- Cadena de modelos: nada retirado, nada duplicado -----------------------
+
+
+EOL_RETIRADOS = (
+    "nvidia/nemotron-3-super-120b-a12b",
+    "meta/llama-3.2-90b-vision-instruct",
+    "deepseek-ai/deepseek-v4.1-flash",
+)
+
+
+def test_cadena_sin_modelos_retirados_ni_duplicados():
+    """El default + los respaldos no resucitan modelos EOL ni se repiten.
+
+    Los tres IDs de arriba murieron el 03/10/2026 (410 end-of-life). Si alguien
+    los reincorpora por error, este test lo detiene antes de que el .exe pague
+    llamadas fallidas.
+    """
+    from core.nvidia import MODELO_POR_DEFECTO, MODELOS_DE_REPALDO
+
+    cadena = [MODELO_POR_DEFECTO] + list(MODELOS_DE_REPALDO)
+
+    for retirado in EOL_RETIRADOS:
+        assert retirado not in cadena, f"modelo retirado aun presente: {retirado}"
+
+    assert len(cadena) == len(set(cadena)), f"hay duplicados en la cadena: {cadena}"

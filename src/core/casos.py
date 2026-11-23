@@ -199,9 +199,126 @@ INVARIANTES = [
 TODOS = CORRECCIONES + INVARIANTES
 
 
+# --- Casos del "modo humano ligero" (natural) --------------------------------
+
+# Estos casos NO se mezclan con `casos.TODOS` (que tiene expectativa exacta):
+# la naturalidad no es determinista. Cada caso trae `debe_contener` / no_debe_contener
+# para lo que sí se puede afirmar de forma determinista (datos, URLs, cifras,
+# nombres), y deja la naturalidad a una checklist cualitativa que completa el
+# operador (ver `bateria.ejecutar_natural`).
+
+
+@dataclass(frozen=True)
+class CasoNatural:
+    nombre: str
+    entrada: str
+    # "formal", "informal" o "neutro": registro del original.
+    registro: str
+    # Frases que SIEMPRE deben seguir estando (datos, URLs, cifras, nombres).
+    debe_contener: tuple[str, ...] = ()
+    # Frases que NUNCA deben aparecer (no se inventan, no se eliminan).
+    no_debe_contener: tuple[str, ...] = ()
+    nota: str = ""
+
+
+CASOS_NATURALES = [
+    CasoNatural(
+        "correo-formal-largo",
+        (
+            "Estimado señor cliente, nos dirigimos a usted para confirmar la "
+            "entrega de la mercadería pactada para el 12/05/2026. Quedamos a la "
+            "espera de su confirmación y le enviamos la factura en formato PDF. "
+            "Cualquier consulta, escribanos a ventas@cipsa.com.pe o llámenos al "
+            "celular 987 654 321. Cordialmente, área de ventas."
+        ),
+        "formal",
+        debe_contener=(
+            "Estimado señor cliente",
+            "12/05/2026",
+            "ventas@cipsa.com.pe",
+            "celular",
+            "Cordialmente",
+        ),
+        no_debe_contener=("ordenador", "movil", "autobus"),
+        nota="Correo formal largo: solo ortografía y puntuación, sin informalizar.",
+    ),
+    CasoNatural(
+        "mensaje-informal-corto",
+        "hola chau te mando la info pa el cliente lunes nomas",
+        "informal",
+        debe_contener=("lunes", "cliente"),
+        no_debe_contener=("estimado", "cordialmente"),
+        nota="Mensaje informal corto: se ordena sin enfriar el tono.",
+    ),
+    CasoNatural(
+        "texto-neutro",
+        "el reporte esta listo para revisar y hay que enviarlo hoy mismo",
+        "neutro",
+        debe_contener=("reporte", "hoy mismo"),
+        nota="Texto neutro: tono conversacional, ni formal ni coloquial.",
+    ),
+    CasoNatural(
+        "typos-basicos",
+        "el cliente pidio tres cajas y la factura",
+        "neutro",
+        debe_contener=("cliente", "cajas", "factura"),
+        nota="Typos sencillos (pidio -> pidió).",
+    ),
+    CasoNatural(
+        "cifras-y-moneda",
+        "el monto total es S/ 1,250.00 por lote y el 12/05/2026 se paga",
+        "formal",
+        debe_contener=("S/ 1,250.00", "12/05/2026", "lote"),
+        nota="Cifras y moneda peruana intactas.",
+    ),
+    CasoNatural(
+        "hora-y-abreviaturas",
+        "la reunion empieza a las 9:30 am en la oficina de Lima",
+        "informal",
+        debe_contener=("9:30 am", "Lima"),
+        no_debe_contener=("9:30 a. m.", "a.m."),
+        nota="Horas y abreviaturas intactas (regla 8 del prompt).",
+    ),
+    CasoNatural(
+        "nombres-propuios",
+        "escribi a Juan Perez y Maria para confirmar la reunion",
+        "informal",
+        debe_contener=("Juan Perez", "Maria"),
+        no_debe_contener=("Juan Pérez", "María"),
+        nota="Nombres propios sin tilde, intactos (decision de estilo, no error).",
+    ),
+    CasoNatural(
+        "url-y-correo",
+        "ver https://intranet.cipsa.com.pe/pedidos/7781 y escribir a soporte@cipsa.pe",
+        "neutro",
+        debe_contener=("https://intranet.cipsa.com.pe/pedidos/7781", "soporte@cipsa.pe"),
+        nota="URLs y correos intactos.",
+    ),
+    CasoNatural(
+        "vocabulario-peruano",
+        "le enviamos la computadora y el celular con el combustible",
+        "formal",
+        debe_contener=("computadora", "celular", "combustible"),
+        no_debe_contener=("ordenador", "movil", "gasolina"),
+        nota="Vocabulario peruano correcto, sin variantes regionales.",
+    ),
+    CasoNatural(
+        "parrafo-multi-frase",
+        (
+            "Buenos dias. El reporte de marzo esta listo y lo enviamos hoy. "
+            "Hay que revisar las cifras antes de firmar. Gracias por su atencion."
+        ),
+        "formal",
+        debe_contener=("reporte", "marzo", "cifras", "Gracias"),
+        nota="Parrafo multi-frase para medir el presupuesto de palabras (1-2 por frase).",
+    ),
+]
+
+
 def resumen() -> dict[str, int]:
     return {
         "correcciones": len(CORRECCIONES),
         "invariantes": len(INVARIANTES),
         "total": len(TODOS),
+        "casos_naturales": len(CASOS_NATURALES),
     }

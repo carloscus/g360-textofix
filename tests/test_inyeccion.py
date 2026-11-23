@@ -103,3 +103,44 @@ def test_marcadores_compartidos_ai_nim():
     # Los marcadores reales declarados en ai.py.
     assert AI_INICIO == "<<<TEXTO>>>"
     assert AI_FIN == "<<<FIN>>>"
+
+
+# --- Precisiones del PROMPT (reglas 8 y 9, sin agregar regla 11) ------------
+
+
+def test_prompt_regla8_respeta_horas_y_abreviaturas():
+    """La regla 8 deja intactos formatos de hora, abreviaturas y siglas."""
+    assert "9:30 am" in PROMPT
+    assert "9:30 a. m." in PROMPT
+    assert "EE.UU." in PROMPT
+    assert "aprox." in PROMPT
+    assert "N.º" in PROMPT
+
+
+def test_prompt_regla8_no_acentua_nombres_propios():
+    """La regla 8 deja nombres propias, marcas y siglas aunque no lleven tilde."""
+    assert "Perez" in PROMPT
+    assert "Maria" in PROMPT
+    assert "WhatsApp" in PROMPT
+    assert "SKU" in PROMPT
+
+
+def test_prompt_regla9_no_cambia_ante_duda():
+    """La regla 9 dice que ante duda entre dos formas validas, no se cambia nada."""
+    assert "Ante duda entre dos formas validas, NO cambies nada" in PROMPT
+
+
+def test_prompt_ejemplos_fijan_criterio():
+    """Los ejemplos nuevos fijan el criterio: tilde SI, hora y nombres NO."""
+    assert "La reunion es a las 9:30 am" in PROMPT
+    assert "Escribi a Juan Perez y Maria" in PROMPT
+    assert "La reunión es a las 9:30 am" in PROMPT
+    assert "Escribí a Juan Perez y Maria" in PROMPT
+
+
+def test_prompt_variante_sigue_empezando_con_prompt_y_regla11():
+    """prompt_variante arranca con PROMPT y agrega la regla 11 (no una nueva)."""
+    variante = prompt_variante("la correccion anterior")
+    assert variante.startswith(PROMPT)
+    assert variante.count("\n11.") == 1
+    assert "OTRA correccion" in variante

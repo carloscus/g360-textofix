@@ -47,9 +47,11 @@ PROVEEDOR_OLLAMA_LEGACY = "ollama"
 
 # Las opciones del menu "Modelo de correccion" de la bandeja, en orden.
 # (valor persistido, texto visible)
+# El valor "nvidia-90b" se mantiene por compatibilidad con config.json viejo:
+# ahora apunta al nemotron-3-ultra-550b (el 90b vision se retiro en 2026).
 OPCIONES_MODELO = [
-    ("auto", "Auto (NVIDIA nemotron-super)"),
-    ("nvidia-90b", "NVIDIA 90b Vision"),
+    ("auto", "Auto (NVIDIA nemotron-3.5-super)"),
+    ("nvidia-90b", "NVIDIA Ultra 550b"),
     ("gemini", "Gemini (nube Google)"),
 ]
 

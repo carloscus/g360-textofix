@@ -14,6 +14,6 @@ if %errorlevel% neq 0 (
 )
 
 echo [G360] Sincronizando dependencias y entorno virtual...
-uv sync
+uv sync --extra ai
 echo [G360] Entorno listo. Puedes usar 'uv run python src/main.py' para probar.
 pause
