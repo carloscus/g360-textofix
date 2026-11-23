@@ -31,7 +31,7 @@ ARCHIVO_CONFIG = DIR_PERFIL / "config.json"
 ARCHIVO_CLAVE = DIR_PERFIL / "clave.dat"
 
 CONFIG_POR_DEFECTO = {
-    "hotkey_corregir": "CTRL+SHIFT+E",
+    "hotkey_corregir": "CTRL+ALT+SHIFT+E",
     "hotkey_deshacer": "CTRL+SHIFT+Z",
     "hotkey_rehacer": "CTRL+SHIFT+R",
     "iniciar_con_windows": False,

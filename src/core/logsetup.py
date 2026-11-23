@@ -57,12 +57,18 @@ def refrescar_streams() -> None:
     Se llama tras crear o liberar una consola: el handler quedo apuntando al
     stream viejo (inerte o cerrado) y sin esto los logs posteriores se
     perderian o reventarian.
+
+    Nota: se asigna `handler.stream` directamente en lugar de `setStream()`,
+    porque `setStream` llama `flush()` sobre el stream ANTERIOR antes de
+    reemplazarlo, y ese stream puede estar cerrado (p.ej. despues de liberar
+    una consola propia). La reasignacion directa es segura: el stream viejo
+    ya no se usa y el nuevo es valido.
     """
     logger = logging.getLogger(LOGGER_NAME)
     destino = sys.stderr if sys.stderr is not None else Nulo()
     for handler in logger.handlers:
         if isinstance(handler, logging.StreamHandler):
-            handler.setStream(destino)
+            handler.stream = destino
 
 
 def describe(text: str | None) -> str:

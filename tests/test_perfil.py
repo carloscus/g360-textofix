@@ -35,7 +35,7 @@ def test_guardar_atajo_persiste_en_el_perfil(perfil_falso: Path):
     config = perfil.leer_config()
     assert config["hotkey_deshacer"] == "CTRL+ALT+D"
     # Las otras dos no se tocan.
-    assert config["hotkey_corregir"] == "CTRL+SHIFT+E"
+    assert config["hotkey_corregir"] == "CTRL+ALT+SHIFT+E"
     assert config["hotkey_rehacer"] == "CTRL+SHIFT+R"
 
 

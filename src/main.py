@@ -359,7 +359,7 @@ def main(argv: list[str] | None = None) -> int:
 
     # --- Atajos ---------------------------------------------------------------
     textos = {
-        "corregir": perfil.get("hotkey_corregir", "CTRL+SHIFT+E"),
+        "corregir": perfil.get("hotkey_corregir", "CTRL+ALT+SHIFT+E"),
         "deshacer": perfil.get("hotkey_deshacer", "CTRL+SHIFT+Z"),
         "rehacer": perfil.get("hotkey_rehacer", "CTRL+SHIFT+R"),
     }

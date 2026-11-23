@@ -112,7 +112,7 @@ Los atajos por defecto y su equivalente en el archivo de perfil:
 
 | Acción | Por defecto | Variable |
 |---|---|---|
-| Corregir | `Ctrl+Shift+E` | `hotkey_corregir` |
+| Corregir | `Ctrl+Alt+Shift+E` | `hotkey_corregir` |
 | Deshacer | `Ctrl+Shift+Z` | `hotkey_deshacer` |
 | Rehacer | `Ctrl+Shift+R` | `hotkey_rehacer` |
 
@@ -332,7 +332,7 @@ Es lo que escribe el menú de la bandeja. Se arranca leyendo `.env` y después
 
 | Llave | Por defecto | Para qué |
 |---|---|---|
-| `hotkey_corregir` | `CTRL+SHIFT+E` | Atajo de corrección |
+| `hotkey_corregir` | `CTRL+ALT+SHIFT+E` | Atajo de corrección |
 | `hotkey_deshacer` | `CTRL+SHIFT+Z` | Atajo de deshacer |
 | `hotkey_rehacer` | `CTRL+SHIFT+R` | Atajo de rehacer |
 | `iniciar_con_windows` | `false` | Arranque automático |

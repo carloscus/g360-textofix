@@ -238,6 +238,31 @@ def test_cerrar_no_libera_la_terminal_de_origen(monkeypatch):
     assert llamados["inertizar"] == []
 
 
+def test_ciclo_crear_cerrar_crear_consola_propia(monkeypatch):
+    """Crear consola propia, cerrarla y volver a crear no debe explotar.
+
+    Usa los fakes de Win32: no hay consola real ni streams reales. El primer
+    crear alloca, el cerrar libera, el segundo crear alloca de nuevo.
+    """
+    _estado_limpio(monkeypatch)
+    _patear_helpers(monkeypatch)
+    k32 = _Kernel32Falso(consola_ahora=0, puede_alloc=True)
+    monkeypatch.setattr(consola, "kernel32", k32)
+    monkeypatch.setattr("builtins.input", lambda *_: "")
+
+    assert consola.pedir_consola() is True
+    assert consola._consola_propia is True
+    assert k32.alloc_llamado == 1
+
+    consola.cerrar_consola_propia()
+    assert consola._consola_propia is False
+    assert k32.free_llamado == 1
+
+    assert consola.pedir_consola() is True
+    assert consola._consola_propia is True
+    assert k32.alloc_llamado == 2
+
+
 # --- avisar ------------------------------------------------------------------
 
 
