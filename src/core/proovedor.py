@@ -45,6 +45,15 @@ PROVEEDOR_NIM_90B = "nvidia-90b"
 # viejo y avisar, en vez de fallar en silencio.
 PROVEEDOR_OLLAMA_LEGACY = "ollama"
 
+# Modelo OpenRouter activo: si NIM_MODEL esta seteado se respeta, si no el
+# nemotron actual por defecto.
+MODELO_OPENROUTER_POR_DEFECTO = "nvidia/nemotron-3.5-super-vl:free"
+
+
+def modelo_openrouter_activo() -> str:
+    """El modelo que el proxy va a usar: NIM_MODEL del entorno o el default."""
+    return os.environ.get("NIM_MODEL", "").strip() or MODELO_OPENROUTER_POR_DEFECTO
+
 # Las opciones del menu "Modelo de correccion" de la bandeja, en orden.
 # (valor persistido, texto visible)
 # El valor "nvidia-90b" se mantiene por compatibilidad con config.json viejo:
@@ -186,3 +195,15 @@ def etiqueta(prov: ProveedorIA) -> str:
     if isinstance(prov, CorrectorIA):
         return "gemini"
     return type(prov).__module__
+
+
+def etiqueta_visible(etiqueta_cruda: str) -> str:
+    """Etiqueta para mostrar: nvidia apunta al proxy local ⇒ OpenRouter."""
+    import os
+
+    url = os.environ.get("NIM_URL", "").lower()
+    if etiqueta_cruda == "nvidia" and any(
+        h in url for h in ("127.0.0.1", "localhost", "::1")
+    ):
+        return "OpenRouter (Nemotron)"
+    return etiqueta_cruda

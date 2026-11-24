@@ -5,7 +5,8 @@ Registra los tres atajos de verdad con RegisterHotKey y comprueba que:
 
 1. se pueden registrar (no estan ocupados por otra app),
 2. la pulsacion sintetica dispara la accion correcta,
-3. cada accion se dispara una sola vez aunque se insista,
+3. una segunda pulsacion durante una correccion se ejecuta una vez al terminar
+   (una encolada como maximo); cualquier pulsacion extra se descarta,
 4. cerrar libera los atajos.
 
     uv run python tests/smoke_hotkey.py
@@ -187,21 +188,28 @@ def main() -> int:
     print("\n=== una accion a la vez ===")
     conteo: list[str] = []
     bloqueo = threading.Event()
+    liberado = threading.Event()
 
     def _lento(accion: str) -> None:
         conteo.append(accion)
         bloqueo.set()
-        time.sleep(1.2)
+        liberado.wait(timeout=5)
 
     escucha._al_presionar = _lento
     for _ in range(4):
         send_hotkey(ord("E"), MOD_CTRL | MOD_SHIFT)
         time.sleep(0.1)
     bloqueo.wait(3)
-    time.sleep(1.6)
+    liberado.set()
+
+    # Espera por condicion: hasta 2 ejecuciones (una real + una encolada),
+    # con timeout explícito.
+    limite = time.time() + 5.0
+    while time.time() < limite and len(conteo) < 2:
+        time.sleep(0.05)
     total = len(conteo)
     escucha._al_presionar = _al_presionar
-    bien = total == 1
+    bien = total == 2
     print(f"  {'OK ' if bien else 'MAL'} 4 pulsaciones rapidas -> {total} ejecucion(es)")
     if not bien:
         fallos += 1

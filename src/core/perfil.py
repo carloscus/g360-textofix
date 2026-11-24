@@ -208,6 +208,48 @@ def hay_clave_nim() -> bool:
     return _archivo_clave_nim().exists()
 
 
+# --- Clave de API OpenRouter ------------------------------------------------
+# El proxy local usa OPENROUTER_API_KEY. La clave se cifra con DPAPI igual
+# que las demas, y la variable de entorno (en .env del perfil) se lee al
+# arrancar el proxy; por eso guardamos en ambos sitios.
+
+
+def _archivo_clave_openrouter() -> Path:
+    """Resuelve en cada llamada: APPDATA puede cambiar entre pruebas."""
+    return DIR_PERFIL / "clave_openrouter.dat"
+
+
+def guardar_clave_openrouter(clave: str) -> None:
+    """Guarda la clave de OpenRouter cifrada. Una clave vacia la borra."""
+    DIR_PERFIL.mkdir(parents=True, exist_ok=True)
+    destino = _archivo_clave_openrouter()
+    if not clave.strip():
+        destino.unlink(missing_ok=True)
+        return
+    destino.write_bytes(_cifrar(clave.strip().encode("utf-8")))
+    log.info("clave de OpenRouter guardada (cifrada con DPAPI)")
+
+
+def leer_clave_openrouter() -> str | None:
+    """Devuelve la clave de OpenRouter guardada, o None si no hay o no se abre."""
+    destino = _archivo_clave_openrouter()
+    if not destino.exists():
+        return None
+    try:
+        return _descifrar(destino.read_bytes()).decode("utf-8").strip()
+    except OSError as exc:
+        log.warning("hay una clave de OpenRouter pero no se puede descifrar: %s", exc)
+        return None
+
+
+def borrar_clave_openrouter() -> None:
+    _archivo_clave_openrouter().unlink(missing_ok=True)
+
+
+def hay_clave_openrouter() -> bool:
+    return _archivo_clave_openrouter().exists()
+
+
 # --- Configuracion (no secreta) ---------------------------------------------
 
 

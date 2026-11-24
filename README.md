@@ -754,7 +754,8 @@ No comprueba que el parser devuelva lo esperado, que es fácil. Comprueba cosas
 que solo se ven con `RegisterHotKey` real:
 
 - los tres atajos se registran y cada pulsación dispara su acción;
-- cuatro pulsaciones seguidas producen **una** ejecución, no cuatro;
+- cuatro pulsaciones seguidas producen **una ejecución + UNA encolada como máximo**
+  (la segunda se ejecuta al terminar la primera; el resto se descarta);
 - **cambiar un atajo en caliente**: el nuevo dispara sin reiniciar y el viejo
   queda libre para que otra app lo pueda registrar;
 - cambiar a un atajo que ya usa otra acción se **rechaza**, y la acción

@@ -9,15 +9,19 @@ Sirve para dos momentos:
   (GEMINI_MODEL / NIM_MODEL).
 
 No escribe nada en pantalla el modulo: devuelve resultados y decide el
-llamador que hacer con ellos. El texto de prueba es "hola": corto a proposito,
-porque el ping gasta tokens de la cuota.
+llamador que hacer con ellos.
+
+El texto de prueba no es "hola": con texto tan corto Nemotron devuelve
+contenido vacio y el ping daba falso FALLO, aunque la clave y el modelo
+estuvieran bien. Con un texto largo y con errores reales (que el modelo
+sí corrige) la respuesta tiene contenido y el ping deja de fallar.
 """
 
 from __future__ import annotations
 
 import time
 
-TEXTO_DE_PRUEBA = "hola"
+TEXTO_DE_PRUEBA = "Hay que reclamar a almacen y ver regularizar. commu se hara, y el enviar, no corrigio, podrias revisar?"
 
 # Para el ping no hace falta la espera de correccion real: un proveedor que
 # no responde en 15s no sirve para corregir en vivo de todas formas.
@@ -99,10 +103,17 @@ def _diagnostico(exc: Exception) -> str:
 
 
 def linea(resultado: dict) -> str:
-    """Una linea de reporte: [OK] nvidia: clave y modelo OK (1.2s)."""
+    """Una linea de reporte: [OK] OpenRouter (Nemotron): clave y modelo OK (1.2s).
+
+    La etiqueta visible solo se aplica al imprimir: el dict interno sigue
+    guardando la clave cruda ("nvidia").
+    """
+    from .proovedor import etiqueta_visible
+
     marca = "OK   " if resultado["ok"] else "FALLO"
+    etiqueta = etiqueta_visible(resultado["etiqueta"])
     return (
-        f"[{marca}] {resultado['etiqueta']}: {resultado['detalle']} ({resultado['segundos']:.1f}s)"
+        f"[{marca}] {etiqueta}: {resultado['detalle']} ({resultado['segundos']:.1f}s)"
     )
 
 
@@ -114,6 +125,11 @@ def sin_clave(resultado: dict) -> bool:
 def imprimir(resultado: dict) -> None:
     """Reporta a consola, con la marca de SIN CLAVE cuando solo falta la clave."""
     if sin_clave(resultado):
-        print(f"[SIN CLAVE] {resultado['etiqueta']}: configurala desde la bandeja o en .env")
+        from .proovedor import etiqueta_visible
+
+        print(
+            f"[SIN CLAVE] {etiqueta_visible(resultado['etiqueta'])}: "
+            f"configurala desde la bandeja o en .env"
+        )
     else:
         print(linea(resultado))

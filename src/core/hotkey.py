@@ -210,7 +210,13 @@ class EscuchaAtajos:
         self._ocupado = set()
         self._al_presionar: Callable[[str], None] | None = None
         # Pedido de cambio de atajo encolado desde otro hilo; ver `cambiar`.
+        # DISTINTO de _pulsacion_pendiente (abajo): _pendiente es para cambiar
+        # el atajo en caliente; _pulsacion_pendiente es para no perder una
+        # segunda pulsacion mientras una accion esta en curso.
         self._pendiente: tuple | None = None
+        # Una sola pulsacion por accion que se ejecuta al terminar la actual.
+        # Si ya hay una pendiente, cualquier pulsacion extra se descarta.
+        self._pulsacion_pendiente: set[str] = set()
         # El initializer de COM del hilo: la referencia lo mantiene vivo
         # (su __del__ des-inicializa COM, ver `_inicializar_com`).
         self._com = None
@@ -464,7 +470,15 @@ class EscuchaAtajos:
             return
         with self._lock:
             if accion in self._ocupado:
-                log.debug("%s en curso: atajo ignorado", accion)
+                # La ventana de terminacion incluye el finally: cualquier
+                # pulsacion que llegue mientras el mismo hilo esta terminando
+                # (o ejecutando) se considera "durante la correccion" y se
+                # encola. Como es el mismo hilo, no hay doble escritura.
+                if accion in self._pulsacion_pendiente:
+                    log.debug("%s en curso y ya hay una pendiente: descarto", accion)
+                    return
+                self._pulsacion_pendiente.add(accion)
+                log.debug("%s en curso: pulsacion encolada", accion)
                 return
             self._ocupado.add(accion)
 
@@ -476,14 +490,37 @@ class EscuchaAtajos:
         ).start()
 
     def _ejecutar(self, accion: str) -> None:
-        try:
-            if self._al_presionar is not None:
-                self._al_presionar(accion)
-        except Exception:
-            log.exception("fallo ejecutando %s", accion)
-        finally:
-            with self._lock:
-                self._ocupado.discard(accion)
+        """
+        Ejecuta la accion en el MISMO hilo, en bucle.
+
+        Mientras `accion` este en `_pulsacion_pendiente`, al terminar una
+        ejecucion arranca otra inmediatamente (una sola, la encolada). Si
+        `al_presionar` lanza, el finally limpia y el bucle termina: nunca deja
+        el estado colgado.
+        """
+        while True:
+            reejecutar = False
+            try:
+                if self._al_presionar is not None:
+                    self._al_presionar(accion)
+            except Exception:
+                log.exception("fallo ejecutando %s", accion)
+            finally:
+                with self._lock:
+                    if accion in self._pulsacion_pendiente:
+                        # Hay una pendiente: la consumo y vuelvo al paso 1.
+                        self._pulsacion_pendiente.discard(accion)
+                        reejecutar = True
+                    else:
+                        # No hay re-ejecucion encolada: liberar y terminar.
+                        self._ocupado.discard(accion)
+            if not reejecutar:
+                return
+
+    def en_curso(self, accion: str) -> bool:
+        """Devuelve True si `accion` esta siendo ejecutada ahora mismo."""
+        with self._lock:
+            return accion in self._ocupado
 
 
 # Se conserva el nombre viejo: lo usa la prueba de humo del atajo.

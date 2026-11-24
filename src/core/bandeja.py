@@ -21,17 +21,21 @@ from PIL import Image
 
 from .logsetup import LOGGER_NAME
 from .perfil import (
+    borrar_clave_openrouter,
     guardar_clave_api,
     guardar_clave_nim,
+    guardar_clave_openrouter,
     hay_clave_api,
     iniciar_con_windows,
     leer_clave_api,
     leer_clave_nim,
+    leer_clave_openrouter,
     quitar_inicio_con_windows,
     ruta_perfil,
     tiene_inicio_con_windows,
 )
 from .ping import probar_gemini, probar_nvidia
+from .proovedor import modelo_openrouter_activo
 
 log = logging.getLogger(LOGGER_NAME)
 
@@ -92,6 +96,17 @@ class Bandeja:
 
     # --- Menu ---------------------------------------------------------------
 
+    def texto_estado(self) -> str:
+        """Texto del item de estado: 'Corrigiendo...' si hay una en curso,
+        el resumen de lo contrario.
+
+        Se lee en la misma instancia de Bandeja, asi refleja el estado vivo
+        de la escucha (no un snapshot al construir el menu).
+        """
+        if self.escucha is not None and self.escucha.en_curso("corregir"):
+            return "Corrigiendo..."
+        return self.estado.resumen()
+
     def _item_estado(self) -> pystray.MenuItem:
         """
         Linea de estado, no pulsable.
@@ -106,13 +121,19 @@ class Bandeja:
             faltantes = self.escucha.faltantes
 
         if faltantes:
-            partes = [self.estado.resumen()]
-            partes.append(f"Atajos sin registrar ({len(faltantes)}):")
+            # 'Corrigiendo...' se evalua dinamicamente en cada acceso (no es un
+            # snapshot al construir el menu), para que refleje el estado vivo
+            # de la escucha incluso cuando hay atajos sin registrar.
+            lineas_faltantes = [f"Atajos sin registrar ({len(faltantes)}):"]
             for f in faltantes:
                 titulo = "OTRA APP" if f["es_conflicto_externo"] else "INTERNO"
-                partes.append(f"  - {f['atajo']} ({titulo})")
-            return pystray.MenuItem(lambda _i: "\n".join(partes), None, enabled=False)
-        return pystray.MenuItem(lambda _item: self.estado.resumen(), None, enabled=False)
+                lineas_faltantes.append(f"  - {f['atajo']} ({titulo})")
+            return pystray.MenuItem(
+                lambda _i: "\n".join([self.texto_estado(), *lineas_faltantes]),
+                None,
+                enabled=False,
+            )
+        return pystray.MenuItem(lambda _item: self.texto_estado(), None, enabled=False)
 
     def _construir(self):
         e = self.estado
@@ -132,8 +153,9 @@ class Bandeja:
             ),
             pystray.Menu.SEPARATOR,
             pystray.MenuItem("Cambiar atajo...", self._cambiar_atajo),
-            pystray.MenuItem("Clave API Gemini...", self._configurar_clave),
-            pystray.MenuItem("Clave API NVIDIA...", self._configurar_clave_nim),
+            pystray.MenuItem(
+                "Clave API OpenRouter...", self._configurar_clave_openrouter
+            ),
             pystray.MenuItem("Modelo de correccion", self._submenu_modelo()),
             pystray.MenuItem("Estilo de correccion", self._submenu_estilo()),
             pystray.MenuItem(
@@ -194,42 +216,124 @@ class Bandeja:
             probar=probar_nvidia,
         )
 
+    def _configurar_clave_openrouter(self, *_):
+        """Pide la clave de OpenRouter por consola, la guarda y la deja en .env."""
+        from .consola import cerrar_consola_propia, pedir_consola
+
+        pedir_consola()
+        try:
+            self._configurar_clave_openrouter_en_consola()
+        finally:
+            cerrar_consola_propia()
+
+    def _configurar_clave_openrouter_en_consola(self):
+        print("\n[g360-textofix] Clave de la API de OpenRouter")
+        print("Anotala en https://openrouter.ai/keys")
+        print(f"Se guarda cifrada en: {ruta_perfil()}")
+        actual = leer_clave_openrouter()
+        if actual:
+            print("Ya hay una clave guardada. Pega la nueva o ENTER para dejarla.")
+        try:
+            nueva = input("Clave (oculta no se puede: pegala con Ctrl+V): ").strip()
+        except (EOFError, KeyboardInterrupt, OSError):
+            print("\nCancelado.")
+            return
+        if not nueva:
+            print("No se cambia nada.")
+            return
+
+        # Clave efectiva: la que ya esta en .env, o la guardada en DPAPI, o nada.
+        efectiva = self._leer_openrouter_env() or leer_clave_openrouter() or ""
+        if nueva == efectiva:
+            print("La clave es igual a la ya configurada: no se reescribe nada.")
+            return
+
+        # 1. Guardar cifrada en DPAPI.
+        try:
+            guardar_clave_openrouter(nueva)
+        except OSError as exc:
+            print(f"No se pudo guardar: {exc}")
+            self.refrescar()
+            return
+
+        # 2. Persistir OPENROUTER_API_KEY en el .env del perfil, preservando
+        #    el resto de las lineas (crear archivo si no existe; nunca el repo).
+        self._escribir_openrouter_env(nueva)
+
+        print("Clave de OpenRouter guardada (cifrada) y dejada en .env del perfil.")
+        print(
+            "el proxy lee esa variable al arrancar -> reiniciá el proxy para aplicarla."
+        )
+        self.refrescar()
+
+    # --- .env del perfil (clave OpenRouter para el proxy) ---------------------
+
+    def _env_path(self) -> Path:
+        """El .env del perfil: fuera del repo, en %APPDATA%/g360-textofix."""
+        return ruta_perfil() / ".env"
+
+    def _leer_openrouter_env(self) -> str | None:
+        """Devuelve OPENROUTER_API_KEY del .env del perfil, o None."""
+        ruta = self._env_path()
+        if not ruta.exists():
+            return None
+        for linea in ruta.read_text(encoding="utf-8").splitlines():
+            if linea.startswith("OPENROUTER_API_KEY="):
+                return linea.split("=", 1)[1].strip()
+        return None
+
+    def _escribir_openrouter_env(self, clave: str) -> None:
+        """Escribe OPENROUTER_API_KEY en el .env del perfil, preservando demas lineas.
+
+        Crea el archivo si no existe. Nunca toca nada dentro del repo.
+        """
+        ruta = self._env_path()
+        ruta.parent.mkdir(parents=True, exist_ok=True)
+        lineas = []
+        if ruta.exists():
+            lineas = ruta.read_text(encoding="utf-8").splitlines()
+        escritas = False
+        nuevas = []
+        for linea in lineas:
+            if linea.startswith("OPENROUTER_API_KEY="):
+                nuevas.append(f"OPENROUTER_API_KEY={clave}")
+                escritas = True
+            else:
+                nuevas.append(linea)
+        if not escritas:
+            nuevas.append(f"OPENROUTER_API_KEY={clave}")
+        ruta.write_text("\n".join(nuevas) + "\n", encoding="utf-8")
+        log.info("OPENROUTER_API_KEY actualizada en el .env del perfil")
+
     def _submenu_modelo(self) -> pystray.Menu:
         """
-        Las tres opciones de modelo, con radio y estado al dia.
+        Una sola opcion de modelo para OpenRouter (proxy local), siempre marcada.
 
-        El texto y los valores viven en `proovedor.OPCIONES_MODELO`: la
-        bandeja no decide nada, solo persiste la eleccion en el perfil
-        (ver `_elegir_modelo`). La marca se re-lee al abrir el menu, asi
-        que siempre refleja lo guardado.
+        No usa OPCIONES_MODELO: ese menu es de los proveedores de nube (NIM /
+        Gemini). Cuando el proveedor real es OpenRouter via proxy local, el
+        modelo es unico y viene de NIM_MODEL del entorno o del default.
+        La callback persiste "auto" en config.json (la bandeja no elige modelo
+        propio, deja pasar el proxy).
         """
-        from .perfil import leer_modelo_ia
-        from .proovedor import OPCIONES_MODELO
-
-        def _marcado(valor: str):
-            return lambda _item: leer_modelo_ia() == valor
-
-        return pystray.Menu(
-            *[
-                pystray.MenuItem(
-                    texto,
-                    lambda _item, _valor=valor: self._elegir_modelo(_valor),
-                    radio=True,
-                    checked=_marcado(valor),
-                )
-                for valor, texto in OPCIONES_MODELO
-            ]
-        )
-
-    def _elegir_modelo(self, valor: str, *_):
-        """Persiste la eleccion en el perfil: aplica al siguiente atajo."""
         from .perfil import guardar_config, leer_config
 
-        config = leer_config()
-        config["modelo_ia"] = valor
-        guardar_config(config)
-        log.info("modelo de correccion elegido: %s", valor)
-        self.refrescar()
+        texto = f"OpenRouter ({modelo_openrouter_activo()})"
+
+        def _elegir_auto(_item):
+            config = leer_config()
+            config["modelo_ia"] = "auto"
+            guardar_config(config)
+            log.info("modelo de correccion: auto (OpenRouter/proxy local)")
+            self.refrescar()
+
+        return pystray.Menu(
+            pystray.MenuItem(
+                texto,
+                _elegir_auto,
+                radio=True,
+                checked=lambda _: True,
+            )
+        )
 
     def _submenu_estilo(self) -> pystray.Menu:
         """

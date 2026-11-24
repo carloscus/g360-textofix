@@ -201,6 +201,9 @@ class Estado:
         proveedor = LATENCIA_TRACKER.ultimo_provedor() or "—"
         extra = LATENCIA_TRACKER.resumen(proveedor)
         if extra:
+            from .proovedor import etiqueta_visible
+
+            extra = extra.replace(proveedor, etiqueta_visible(proveedor), 1)
             return f"Activo · Modo {modo} · {extra}"
         return f"Activo · Modo {modo} · {proveedor}"
 
